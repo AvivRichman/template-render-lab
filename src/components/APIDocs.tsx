@@ -137,6 +137,47 @@ export const APIDocs = () => {
 const data = await response.json();
 console.log('Rendered image URL:', data.imageUrl);`;
 
+  const jsonExample = `{
+  "templateId": "${selectedTemplate || 'TPL_REPLACE'}",
+  "output": {
+    "format": "png",
+    "width": 1080,
+    "height": 1350,
+    "background": "transparent"
+  },
+  "mutations": [
+    {
+      "selector": { "name": "headline" },
+      "text": {
+        "value": "Hello World",
+        "fontSize": 64,
+        "color": "#ffffff",
+        "align": "center",
+        "bold": true
+      }
+    },
+    {
+      "selector": { "id": "badge" },
+      "shape": {
+        "type": "rectangle",
+        "fill": "#000000",
+        "stroke": "#ffffff",
+        "strokeWidth": 2,
+        "radius": 12
+      }
+    },
+    {
+      "selector": { "name": "logo" },
+      "position": {
+        "x": 100,
+        "y": 50,
+        "width": 200,
+        "height": 100
+      }
+    }
+  ]
+}`;
+
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
       {/* Header */}
@@ -285,9 +326,10 @@ console.log('Rendered image URL:', data.imageUrl);`;
         <h2 className="text-xl font-semibold mb-4">Code Examples</h2>
         
         <Tabs defaultValue="curl" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="curl">cURL</TabsTrigger>
             <TabsTrigger value="javascript">JavaScript</TabsTrigger>
+            <TabsTrigger value="json">JSON</TabsTrigger>
           </TabsList>
           
           <TabsContent value="curl" className="space-y-4">
@@ -316,6 +358,25 @@ console.log('Rendered image URL:', data.imageUrl);`;
                 variant="outline"
                 className="absolute top-2 right-2"
                 onClick={() => copyToClipboard(jsExample, "JavaScript example")}
+              >
+                <Copy className="h-3 w-3" />
+              </Button>
+            </div>
+          </TabsContent>
+          
+          <TabsContent value="json" className="space-y-4">
+            <div className="relative">
+              <div className="mb-2">
+                <p className="text-sm text-muted-foreground">Request Body (JSON format)</p>
+              </div>
+              <pre className="bg-muted p-4 rounded-lg text-sm overflow-x-auto">
+                <code>{jsonExample}</code>
+              </pre>
+              <Button
+                size="sm"
+                variant="outline"
+                className="absolute top-8 right-2"
+                onClick={() => copyToClipboard(jsonExample, "JSON example")}
               >
                 <Copy className="h-3 w-3" />
               </Button>
