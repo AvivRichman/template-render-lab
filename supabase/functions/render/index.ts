@@ -42,17 +42,18 @@ interface RenderRequest {
   }>;
 }
 
-// Enhanced image generation function with proper rendering
-async function generateImage(sceneData: any, width: number, height: number, format: string): Promise<Uint8Array> {
+// Simple image generation function
+async function generateSimpleImage(sceneData: any, width: number, height: number, format: string): Promise<ArrayBuffer> {
+  // Create a simple SVG-based image
   const background = sceneData.background || '#ffffff';
   const objects = sceneData.objects || [];
   
   let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">`;
   svgContent += `<rect width="100%" height="100%" fill="${background}"/>`;
   
-  // Render objects with proper escaping
+  // Render objects
   for (const obj of objects) {
-    if (obj.type === 'text' || obj.type === 'Text') {
+    if (obj.type === 'text') {
       const x = obj.left || 0;
       const y = (obj.top || 0) + (obj.fontSize || 16);
       const fontSize = obj.fontSize || 16;
@@ -61,13 +62,9 @@ async function generateImage(sceneData: any, width: number, height: number, form
       const fontWeight = obj.fontWeight || 'normal';
       const fontStyle = obj.fontStyle || 'normal';
       const textAnchor = obj.textAlign === 'center' ? 'middle' : obj.textAlign === 'right' ? 'end' : 'start';
-      const text = (obj.text || 'Text').replace(/[<>&"']/g, (char: string) => {
-        const entities: { [key: string]: string } = { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' };
-        return entities[char];
-      });
       
-      svgContent += `<text x="${x}" y="${y}" font-size="${fontSize}" font-family="${fontFamily}" fill="${fill}" font-weight="${fontWeight}" font-style="${fontStyle}" text-anchor="${textAnchor}">${text}</text>`;
-    } else if (obj.type === 'rect' || obj.type === 'Rect') {
+      svgContent += `<text x="${x}" y="${y}" font-size="${fontSize}" font-family="${fontFamily}" fill="${fill}" font-weight="${fontWeight}" font-style="${fontStyle}" text-anchor="${textAnchor}">${obj.text || 'Text'}</text>`;
+    } else if (obj.type === 'rect') {
       const x = obj.left || 0;
       const y = obj.top || 0;
       const rectWidth = obj.width || 100;
@@ -77,7 +74,7 @@ async function generateImage(sceneData: any, width: number, height: number, form
       const strokeWidth = obj.strokeWidth || 0;
       
       svgContent += `<rect x="${x}" y="${y}" width="${rectWidth}" height="${rectHeight}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
-    } else if (obj.type === 'circle' || obj.type === 'Circle') {
+    } else if (obj.type === 'circle') {
       const cx = (obj.left || 0) + (obj.radius || 50);
       const cy = (obj.top || 0) + (obj.radius || 50);
       const r = obj.radius || 50;
@@ -91,55 +88,10 @@ async function generateImage(sceneData: any, width: number, height: number, form
   
   svgContent += '</svg>';
   
-  // For now, return SVG as-is. In production, you'd use a proper rendering engine for PNG/WEBP
+  // Convert SVG to PNG using a simple conversion
+  // Note: This is a simplified implementation. In production, you'd use a proper rendering engine.
   const encoder = new TextEncoder();
-  return encoder.encode(svgContent);
-}
-
-// Validate mutations against template elements
-function validateMutations(mutations: any[], templateObjects: any[]): { valid: boolean; errors: string[]; } {
-  const errors: string[] = [];
-  
-  console.log("Available elements in template:", templateObjects.map(obj => ({ 
-    type: obj.type, 
-    id: obj.id || 'no-id', 
-    name: obj.name || 'no-name' 
-  })));
-  
-  console.log("Requested mutations:", mutations.map(m => ({ 
-    id: m.selector.id, 
-    name: m.selector.name 
-  })));
-  
-  for (const mutation of mutations) {
-    let found = false;
-    
-    // Find matching element
-    for (const obj of templateObjects) {
-      const matchesId = mutation.selector.id && obj.id === mutation.selector.id;
-      const matchesName = mutation.selector.name && obj.name === mutation.selector.name;
-      
-      if (matchesId || matchesName) {
-        found = true;
-        
-        // Validate mutation properties against element type
-        if (mutation.text && !(obj.type === 'text' || obj.type === 'Text')) {
-          errors.push(`Text mutations not allowed on ${obj.type} element`);
-        }
-        if (mutation.shape && !(obj.type === 'rect' || obj.type === 'Rect' || obj.type === 'circle' || obj.type === 'Circle')) {
-          errors.push(`Shape mutations not allowed on ${obj.type} element`);
-        }
-        break;
-      }
-    }
-    
-    if (!found) {
-      const selector = mutation.selector.id ? `id: ${mutation.selector.id}` : `name: ${mutation.selector.name}`;
-      errors.push(`Element not found: ${selector}`);
-    }
-  }
-  
-  return { valid: errors.length === 0, errors };
+  return encoder.encode(svgContent).buffer;
 }
 
 serve(async (req) => {
@@ -259,37 +211,20 @@ serve(async (req) => {
       });
     }
 
-    // Validate mutations against template
+    // Apply mutations to scene data
     const sceneData = JSON.parse(JSON.stringify(template.scene_data));
-    const objects = sceneData.objects || [];
     
-    const validation = validateMutations(body.mutations, objects);
-    if (!validation.valid) {
-      return new Response(JSON.stringify({ 
-        error: 'Invalid mutations',
-        details: validation.errors,
-        availableElements: objects.map(obj => ({ 
-          type: obj.type, 
-          id: obj.id || 'no-id', 
-          name: obj.name || 'no-name' 
-        })),
-        help: 'Use the id or name from availableElements as your selector'
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-    
-    // Apply validated mutations to scene data
     for (const mutation of body.mutations) {
+      const objects = sceneData.objects || [];
+      
       for (const obj of objects) {
         // Check if this object matches the selector
         const matchesId = mutation.selector.id && obj.id === mutation.selector.id;
         const matchesName = mutation.selector.name && obj.name === mutation.selector.name;
         
         if (matchesId || matchesName) {
-          // Apply text mutations (already validated)
-          if (mutation.text && (obj.type === 'text' || obj.type === 'Text')) {
+          // Apply text mutations
+          if (mutation.text && obj.type === 'text') {
             if (mutation.text.value !== undefined) obj.text = mutation.text.value;
             if (mutation.text.fontSize !== undefined) obj.fontSize = Math.min(Math.max(mutation.text.fontSize, 8), 200);
             if (mutation.text.color !== undefined) obj.fill = mutation.text.color;
@@ -308,12 +243,12 @@ serve(async (req) => {
             if (mutation.position.height !== undefined) obj.height = Math.max(1, mutation.position.height);
           }
           
-          // Apply shape mutations (already validated)
-          if (mutation.shape && (obj.type === 'rect' || obj.type === 'Rect' || obj.type === 'circle' || obj.type === 'Circle')) {
+          // Apply shape mutations
+          if (mutation.shape && (obj.type === 'rect' || obj.type === 'circle')) {
             if (mutation.shape.fill !== undefined) obj.fill = mutation.shape.fill;
             if (mutation.shape.stroke !== undefined) obj.stroke = mutation.shape.stroke;
             if (mutation.shape.strokeWidth !== undefined) obj.strokeWidth = Math.max(0, mutation.shape.strokeWidth);
-            if (mutation.shape.radius !== undefined && (obj.type === 'circle' || obj.type === 'Circle')) obj.radius = Math.max(1, mutation.shape.radius);
+            if (mutation.shape.radius !== undefined && obj.type === 'circle') obj.radius = Math.max(1, mutation.shape.radius);
           }
         }
       }
@@ -323,23 +258,14 @@ serve(async (req) => {
     const renderId = `rnd_${crypto.randomUUID()}`;
     
     // Generate the image
-    const imageBuffer = await generateImage(sceneData, width, height, body.output.format);
+    const imageBuffer = await generateSimpleImage(sceneData, width, height, body.output.format);
     
-    // Determine content type based on format
-    const contentTypes = {
-      'png': 'image/png',
-      'jpg': 'image/jpeg', 
-      'webp': 'image/webp'
-    };
-    const contentType = contentTypes[body.output.format] || 'image/svg+xml';
-    const fileExtension = body.output.format === 'jpg' ? 'jpeg' : body.output.format;
-    
-    // Upload to exports bucket for direct image URLs
-    const fileName = `users/${user.id}/api-renders/${renderId}.${fileExtension}`;
+    // Upload to storage
+    const fileName = `users/${user.id}/${renderId}.svg`;
     const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('exports')
+      .from('api-renders')
       .upload(fileName, imageBuffer, {
-        contentType: contentType,
+        contentType: 'image/svg+xml',
         upsert: false
       });
 
@@ -351,9 +277,9 @@ serve(async (req) => {
       });
     }
 
-    // Get public URL for direct image access
+    // Get public URL
     const { data: urlData } = supabase.storage
-      .from('exports')
+      .from('api-renders')
       .getPublicUrl(fileName);
 
     // Record API usage
