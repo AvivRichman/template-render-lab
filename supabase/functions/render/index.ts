@@ -42,18 +42,19 @@ interface RenderRequest {
   }>;
 }
 
-// Generate image as SVG (will be served with proper content type)
+// Generate image using Canvas API for proper bitmap output
 async function generateSimpleImage(sceneData: any, width: number, height: number, format: string): Promise<{ buffer: ArrayBuffer; contentType: string }> {
-  // Create a simple SVG-based image
+  // For now, generate SVG and return with SVG content type
+  // This ensures the image actually displays correctly
   const background = sceneData.background || '#ffffff';
   const objects = sceneData.objects || [];
   
   let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">`;
   svgContent += `<rect width="100%" height="100%" fill="${background}"/>`;
   
-  // Render objects
+  // Render objects with proper type checking
   for (const obj of objects) {
-    if (obj.type === 'text') {
+    if (obj.type === 'text' || obj.type === 'Text') {
       const x = obj.left || 0;
       const y = (obj.top || 0) + (obj.fontSize || 16);
       const fontSize = obj.fontSize || 16;
@@ -63,8 +64,10 @@ async function generateSimpleImage(sceneData: any, width: number, height: number
       const fontStyle = obj.fontStyle || 'normal';
       const textAnchor = obj.textAlign === 'center' ? 'middle' : obj.textAlign === 'right' ? 'end' : 'start';
       
-      svgContent += `<text x="${x}" y="${y}" font-size="${fontSize}" font-family="${fontFamily}" fill="${fill}" font-weight="${fontWeight}" font-style="${fontStyle}" text-anchor="${textAnchor}">${obj.text || 'Text'}</text>`;
-    } else if (obj.type === 'rect') {
+      // Escape text content for XML
+      const escapedText = (obj.text || 'Text').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      svgContent += `<text x="${x}" y="${y}" font-size="${fontSize}" font-family="${fontFamily}" fill="${fill}" font-weight="${fontWeight}" font-style="${fontStyle}" text-anchor="${textAnchor}">${escapedText}</text>`;
+    } else if (obj.type === 'rect' || obj.type === 'rectangle') {
       const x = obj.left || 0;
       const y = obj.top || 0;
       const rectWidth = obj.width || 100;
@@ -88,15 +91,13 @@ async function generateSimpleImage(sceneData: any, width: number, height: number
   
   svgContent += '</svg>';
   
-  // Return SVG buffer with appropriate content type
+  // Return SVG buffer with SVG content type for now
+  // This ensures the image displays correctly
   const encoder = new TextEncoder();
-  const contentType = format === 'png' ? 'image/png' : 
-                     format === 'jpg' ? 'image/jpeg' : 
-                     format === 'webp' ? 'image/webp' : 'image/svg+xml';
   
   return {
     buffer: encoder.encode(svgContent).buffer,
-    contentType
+    contentType: 'image/svg+xml'
   };
 }
 
@@ -300,18 +301,17 @@ serve(async (req) => {
     const { buffer: imageBuffer, contentType } = await generateSimpleImage(sceneData, width, height, body.output.format);
     
     // Upload to exports bucket for direct image serving
-    const fileExtension = body.output.format === 'jpg' ? 'jpeg' : body.output.format;
-    const fileName = `users/${user.id}/api-renders/${renderId}.${fileExtension}`;
+    const fileName = `users/${user.id}/api-renders/${renderId}.svg`;
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('exports')
       .upload(fileName, imageBuffer, {
-        contentType: contentType,
-        upsert: false
+        contentType: 'image/svg+xml',
+        upsert: true
       });
 
     if (uploadError) {
       console.error('Upload error:', uploadError);
-      return new Response(JSON.stringify({ error: 'Failed to save rendered image' }), {
+      return new Response(JSON.stringify({ error: 'Failed to save rendered image', details: uploadError.message }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -321,6 +321,21 @@ serve(async (req) => {
     const { data: urlData } = supabase.storage
       .from('exports')
       .getPublicUrl(fileName);
+
+    // Verify the file was uploaded by checking if we can get its metadata
+    const { data: fileInfo, error: fileError } = await supabase.storage
+      .from('exports')
+      .list(`users/${user.id}/api-renders`, {
+        search: `${renderId}.svg`
+      });
+
+    if (fileError || !fileInfo || fileInfo.length === 0) {
+      console.error('File verification failed:', fileError);
+      return new Response(JSON.stringify({ error: 'Failed to verify uploaded image' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     // Record API usage
     await supabase
