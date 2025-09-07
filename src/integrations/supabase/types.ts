@@ -14,7 +14,111 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      api_usage: {
+        Row: {
+          called_at: string
+          endpoint: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          called_at?: string
+          endpoint: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          called_at?: string
+          endpoint?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      templates: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          scene_data: Json
+          thumbnail_url: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          scene_data: Json
+          thumbnail_url?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          scene_data?: Json
+          thumbnail_url?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      uploads: {
+        Row: {
+          created_at: string
+          file_size: number
+          file_type: string
+          filename: string
+          id: string
+          url: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          file_size: number
+          file_type: string
+          filename: string
+          id?: string
+          url: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          file_size?: number
+          file_type?: string
+          filename?: string
+          id?: string
+          url?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

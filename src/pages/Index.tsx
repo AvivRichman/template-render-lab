@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -9,8 +10,11 @@ import {
   FolderOpen, 
   Zap, 
   Globe,
-  Sparkles
+  Sparkles,
+  LogOut,
+  User
 } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 import { ImageEditor } from "@/components/ImageEditor";
 import { UploadArea } from "@/components/UploadArea";
 import { Templates } from "@/components/Templates";
@@ -19,7 +23,15 @@ import { APIDemo } from "@/components/APIDemo";
 const Index = () => {
   const [activeTab, setActiveTab] = useState("upload");
   const [uploadedImage, setUploadedImage] = useState<string>("");
+  const { user, isLoading, signOut } = useAuth();
+  const navigate = useNavigate();
   
+  useEffect(() => {
+    if (!isLoading && !user) {
+      navigate("/auth");
+    }
+  }, [user, isLoading, navigate]);
+
   const handleImageUpload = (imageUrl: string) => {
     setUploadedImage(imageUrl);
     setActiveTab("editor");
@@ -29,6 +41,26 @@ const Index = () => {
     // In real app, load template data into editor
     setActiveTab("editor");
   };
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/auth");
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-2 text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null; // Will redirect to auth
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -47,9 +79,13 @@ const Index = () => {
             </div>
             <div className="flex items-center gap-3">
               <Badge variant="outline">Free Plan</Badge>
-              <Button variant="outline" size="sm">
-                <Globe className="h-4 w-4 mr-2" />
-                HTTP API
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <User className="h-4 w-4" />
+                {user.email}
+              </div>
+              <Button variant="outline" size="sm" onClick={handleSignOut}>
+                <LogOut className="h-4 w-4 mr-2" />
+                Logout
               </Button>
             </div>
           </div>
@@ -100,20 +136,6 @@ const Index = () => {
         </Tabs>
       </main>
 
-      {/* Authentication Notice */}
-      <div className="fixed bottom-4 right-4 max-w-sm">
-        <Card className="p-4 bg-blue-50 dark:bg-blue-950/10 border-blue-200 dark:border-blue-800">
-          <h4 className="font-medium text-blue-900 dark:text-blue-100 mb-2">
-            Ready for Backend Features?
-          </h4>
-          <p className="text-sm text-blue-700 dark:text-blue-300 mb-3">
-            Connect Supabase to enable user accounts, template storage, and API functionality.
-          </p>
-          <Button size="sm" className="w-full">
-            Connect Supabase
-          </Button>
-        </Card>
-      </div>
     </div>
   );
 };
