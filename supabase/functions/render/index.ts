@@ -320,9 +320,22 @@ serve(async (req) => {
 
     const validation = validateMutations(body.mutations, template.scene_data);
     if (!validation.valid) {
+      // Include helpful debugging info about available elements
+      const objects = template.scene_data.objects || [];
+      const availableElements = objects.map((obj: any) => ({
+        type: obj.type,
+        id: obj.id || 'no-id',
+        name: obj.name || 'no-name'
+      }));
+      
+      console.log('Available elements in template:', availableElements);
+      console.log('Requested mutations:', body.mutations.map((m: any) => m.selector));
+      
       return new Response(JSON.stringify({ 
         error: 'Invalid mutations', 
-        details: validation.errors 
+        details: validation.errors,
+        availableElements: availableElements,
+        help: 'Use the id or name from availableElements as your selector'
       }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
