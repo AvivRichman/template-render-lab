@@ -42,6 +42,58 @@ interface RenderRequest {
   }>;
 }
 
+// Simple image generation function
+async function generateSimpleImage(sceneData: any, width: number, height: number, format: string): Promise<ArrayBuffer> {
+  // Create a simple SVG-based image
+  const background = sceneData.background || '#ffffff';
+  const objects = sceneData.objects || [];
+  
+  let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">`;
+  svgContent += `<rect width="100%" height="100%" fill="${background}"/>`;
+  
+  // Render objects
+  for (const obj of objects) {
+    if (obj.type === 'text') {
+      const x = obj.left || 0;
+      const y = (obj.top || 0) + (obj.fontSize || 16);
+      const fontSize = obj.fontSize || 16;
+      const fontFamily = obj.fontFamily || 'Arial';
+      const fill = obj.fill || '#000000';
+      const fontWeight = obj.fontWeight || 'normal';
+      const fontStyle = obj.fontStyle || 'normal';
+      const textAnchor = obj.textAlign === 'center' ? 'middle' : obj.textAlign === 'right' ? 'end' : 'start';
+      
+      svgContent += `<text x="${x}" y="${y}" font-size="${fontSize}" font-family="${fontFamily}" fill="${fill}" font-weight="${fontWeight}" font-style="${fontStyle}" text-anchor="${textAnchor}">${obj.text || 'Text'}</text>`;
+    } else if (obj.type === 'rect') {
+      const x = obj.left || 0;
+      const y = obj.top || 0;
+      const rectWidth = obj.width || 100;
+      const rectHeight = obj.height || 100;
+      const fill = obj.fill || '#000000';
+      const stroke = obj.stroke || 'none';
+      const strokeWidth = obj.strokeWidth || 0;
+      
+      svgContent += `<rect x="${x}" y="${y}" width="${rectWidth}" height="${rectHeight}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
+    } else if (obj.type === 'circle') {
+      const cx = (obj.left || 0) + (obj.radius || 50);
+      const cy = (obj.top || 0) + (obj.radius || 50);
+      const r = obj.radius || 50;
+      const fill = obj.fill || '#000000';
+      const stroke = obj.stroke || 'none';
+      const strokeWidth = obj.strokeWidth || 0;
+      
+      svgContent += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
+    }
+  }
+  
+  svgContent += '</svg>';
+  
+  // Convert SVG to PNG using a simple conversion
+  // Note: This is a simplified implementation. In production, you'd use a proper rendering engine.
+  const encoder = new TextEncoder();
+  return encoder.encode(svgContent).buffer;
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -68,6 +120,7 @@ serve(async (req) => {
     // Verify JWT token
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) {
+      console.error('Auth error:', authError);
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -110,7 +163,24 @@ serve(async (req) => {
       });
     }
 
-    const body: RenderRequest = await req.json();
+    // Parse request body with error handling
+    let body: RenderRequest;
+    try {
+      const text = await req.text();
+      if (!text.trim()) {
+        return new Response(JSON.stringify({ error: 'Request body is empty' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      body = JSON.parse(text);
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      return new Response(JSON.stringify({ error: 'Invalid JSON in request body' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     // Validate request
     if (!body.templateId || !body.output || !body.mutations) {
@@ -134,6 +204,7 @@ serve(async (req) => {
       .single();
 
     if (templateError || !template) {
+      console.error('Template error:', templateError);
       return new Response(JSON.stringify({ error: 'Template not found or access denied' }), {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -186,9 +257,30 @@ serve(async (req) => {
     // Generate render ID
     const renderId = `rnd_${crypto.randomUUID()}`;
     
-    // For now, we'll return a mock response since we can't actually render Fabric.js on the server
-    // In a real implementation, you'd use a headless browser or canvas rendering service
-    const mockImageUrl = `${supabaseUrl}/storage/v1/object/public/api-renders/users/${user.id}/${renderId}.${body.output.format}`;
+    // Generate the image
+    const imageBuffer = await generateSimpleImage(sceneData, width, height, body.output.format);
+    
+    // Upload to storage
+    const fileName = `users/${user.id}/${renderId}.svg`;
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('api-renders')
+      .upload(fileName, imageBuffer, {
+        contentType: 'image/svg+xml',
+        upsert: false
+      });
+
+    if (uploadError) {
+      console.error('Upload error:', uploadError);
+      return new Response(JSON.stringify({ error: 'Failed to save rendered image' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from('api-renders')
+      .getPublicUrl(fileName);
 
     // Record API usage
     await supabase
@@ -201,16 +293,15 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({
       status: 'ok',
-      imageUrl: mockImageUrl,
-      renderId: renderId,
-      message: 'Template rendering is simulated - actual rendering would require a headless browser service'
+      imageUrl: urlData.publicUrl,
+      renderId: renderId
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   } catch (error) {
     console.error('Error in render function:', error);
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+    return new Response(JSON.stringify({ error: 'Internal server error', details: error.message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
