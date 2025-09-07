@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,73 +10,39 @@ import {
   Calendar,
   Eye
 } from "lucide-react";
-import { toast } from "sonner";
+import { useTemplates, Template } from "@/hooks/useTemplates";
 
-interface Template {
-  id: string;
-  name: string;
-  preview: string;
-  created: string;
-  lastModified: string;
-  type: "image" | "text-only";
-}
-
-// Mock data - in real app this would come from Supabase
-const mockTemplates: Template[] = [
-  {
-    id: "1",
-    name: "Social Media Post",
-    preview: "/placeholder.svg",
-    created: "2024-01-15",
-    lastModified: "2024-01-20",
-    type: "image"
-  },
-  {
-    id: "2", 
-    name: "Marketing Banner",
-    preview: "/placeholder.svg",
-    created: "2024-01-10",
-    lastModified: "2024-01-18",
-    type: "text-only"
-  },
-  {
-    id: "3",
-    name: "Product Showcase",
-    preview: "/placeholder.svg", 
-    created: "2024-01-05",
-    lastModified: "2024-01-15",
-    type: "image"
-  }
-];
 
 interface TemplatesProps {
   onEditTemplate: (template: Template) => void;
 }
 
 export const Templates = ({ onEditTemplate }: TemplatesProps) => {
-  const [templates, setTemplates] = useState<Template[]>(mockTemplates);
+  const { templates, isLoading, deleteTemplate: removeTemplate } = useTemplates();
 
-  const deleteTemplate = (id: string) => {
-    setTemplates(prev => prev.filter(t => t.id !== id));
-    toast("Template deleted successfully");
-  };
-
-  const duplicateTemplate = (template: Template) => {
-    const newTemplate = {
-      ...template,
-      id: Date.now().toString(),
-      name: `${template.name} (Copy)`,
-      created: new Date().toISOString().split('T')[0],
-      lastModified: new Date().toISOString().split('T')[0]
-    };
-    setTemplates(prev => [newTemplate, ...prev]);
-    toast("Template duplicated successfully");
+  const handleDeleteTemplate = async (id: string) => {
+    await removeTemplate(id);
   };
 
   const exportTemplate = (template: Template) => {
-    // In real app, this would export the actual template data
-    toast("Template exported successfully");
+    // Export as JSON for now
+    const dataStr = JSON.stringify(template.scene_data, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${template.name}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -121,11 +86,17 @@ export const Templates = ({ onEditTemplate }: TemplatesProps) => {
             <Card key={template.id} className="overflow-hidden group hover:shadow-lg transition-shadow">
               {/* Preview */}
               <div className="aspect-video bg-[hsl(var(--editor-background))] border-b border-[hsl(var(--editor-border))] relative overflow-hidden">
-                <img
-                  src={template.preview}
-                  alt={template.name}
-                  className="w-full h-full object-cover"
-                />
+                {template.thumbnail_url ? (
+                  <img
+                    src={template.thumbnail_url}
+                    alt={template.name}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <ImageIcon className="h-12 w-12 text-muted-foreground" />
+                  </div>
+                )}
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
                   <Button variant="secondary" size="sm">
                     <Eye className="h-4 w-4 mr-2" />
@@ -133,15 +104,11 @@ export const Templates = ({ onEditTemplate }: TemplatesProps) => {
                   </Button>
                 </div>
                 <Badge 
-                  variant={template.type === "image" ? "default" : "secondary"}
+                  variant="default"
                   className="absolute top-2 right-2"
                 >
-                  {template.type === "image" ? (
-                    <ImageIcon className="h-3 w-3 mr-1" />
-                  ) : (
-                    <Calendar className="h-3 w-3 mr-1" />
-                  )}
-                  {template.type === "image" ? "Image" : "Text Only"}
+                  <ImageIcon className="h-3 w-3 mr-1" />
+                  Template
                 </Badge>
               </div>
 
@@ -149,8 +116,8 @@ export const Templates = ({ onEditTemplate }: TemplatesProps) => {
               <div className="p-4">
                 <h3 className="font-semibold text-lg mb-2">{template.name}</h3>
                 <div className="text-sm text-muted-foreground space-y-1">
-                  <p>Created: {new Date(template.created).toLocaleDateString()}</p>
-                  <p>Modified: {new Date(template.lastModified).toLocaleDateString()}</p>
+                  <p>Created: {new Date(template.created_at).toLocaleDateString()}</p>
+                  <p>Modified: {new Date(template.updated_at).toLocaleDateString()}</p>
                 </div>
 
                 {/* Actions */}
@@ -171,16 +138,9 @@ export const Templates = ({ onEditTemplate }: TemplatesProps) => {
                     <Download className="h-3 w-3" />
                   </Button>
                   <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => duplicateTemplate(template)}
-                  >
-                    <Plus className="h-3 w-3" />
-                  </Button>
-                  <Button 
                     variant="destructive" 
                     size="sm"
-                    onClick={() => deleteTemplate(template.id)}
+                    onClick={() => handleDeleteTemplate(template.id)}
                   >
                     <Trash2 className="h-3 w-3" />
                   </Button>

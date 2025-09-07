@@ -19,11 +19,14 @@ import { ImageEditor } from "@/components/ImageEditor";
 import { UploadArea } from "@/components/UploadArea";
 import { Templates } from "@/components/Templates";
 import { APIDemo } from "@/components/APIDemo";
+import { useTemplates } from "@/hooks/useTemplates";
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState("upload");
   const [uploadedImage, setUploadedImage] = useState<string>("");
+  const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
   const { user, isLoading, signOut } = useAuth();
+  const { templates, refreshTemplates } = useTemplates();
   const navigate = useNavigate();
   
   useEffect(() => {
@@ -38,8 +41,14 @@ const Index = () => {
   };
 
   const handleEditTemplate = (template: any) => {
-    // In real app, load template data into editor
+    setSelectedTemplate(template.scene_data);
+    setUploadedImage(""); // Clear uploaded image when loading template
     setActiveTab("editor");
+  };
+
+  const handleTemplateSaved = () => {
+    refreshTemplates();
+    setActiveTab("templates");
   };
 
   const handleSignOut = async () => {
@@ -106,7 +115,7 @@ const Index = () => {
             </TabsTrigger>
             <TabsTrigger value="templates" className="flex items-center gap-2">
               <FolderOpen className="h-4 w-4" />
-              Templates (0)
+              Templates ({templates.length})
             </TabsTrigger>
             <TabsTrigger value="api" className="flex items-center gap-2">
               <Zap className="h-4 w-4" />
@@ -121,7 +130,11 @@ const Index = () => {
 
             <TabsContent value="editor" className="space-y-6">
               <div className="h-[calc(100vh-200px)]">
-                <ImageEditor uploadedImage={uploadedImage} />
+                <ImageEditor 
+                  uploadedImage={uploadedImage} 
+                  templateData={selectedTemplate}
+                  onTemplateSaved={handleTemplateSaved}
+                />
               </div>
             </TabsContent>
 

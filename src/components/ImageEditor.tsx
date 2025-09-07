@@ -16,20 +16,29 @@ import {
   Underline,
   AlignLeft,
   AlignCenter,
-  AlignRight
+  AlignRight,
+  Save
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
+import { useTemplates } from "@/hooks/useTemplates";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 interface ImageEditorProps {
   uploadedImage?: string;
+  templateData?: any;
+  onTemplateSaved?: () => void;
 }
 
-export const ImageEditor = ({ uploadedImage }: ImageEditorProps) => {
+export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: ImageEditorProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [fabricCanvas, setFabricCanvas] = useState<FabricCanvas | null>(null);
   const [selectedObject, setSelectedObject] = useState<any>(null);
   const [activeTool, setActiveTool] = useState<"select" | "text" | "rectangle" | "circle" | "line">("select");
+  const [templateName, setTemplateName] = useState("");
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  
+  const { saveTemplate } = useTemplates();
   
   // Text properties
   const [textContent, setTextContent] = useState("Sample Text");
@@ -81,8 +90,14 @@ export const ImageEditor = ({ uploadedImage }: ImageEditorProps) => {
 
     setFabricCanvas(canvas);
 
+    // Load template data if provided
+    if (templateData) {
+      canvas.loadFromJSON(templateData, () => {
+        canvas.renderAll();
+      });
+    }
     // Load uploaded image if provided
-    if (uploadedImage) {
+    else if (uploadedImage) {
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
@@ -101,7 +116,7 @@ export const ImageEditor = ({ uploadedImage }: ImageEditorProps) => {
     return () => {
       canvas.dispose();
     };
-  }, [uploadedImage]);
+  }, [uploadedImage, templateData]);
 
   const addText = () => {
     if (!fabricCanvas) return;
@@ -207,6 +222,28 @@ export const ImageEditor = ({ uploadedImage }: ImageEditorProps) => {
     fabricCanvas.backgroundColor = "#ffffff";
     fabricCanvas.renderAll();
     toast("Canvas cleared");
+  };
+
+  const handleSaveTemplate = async () => {
+    if (!fabricCanvas || !templateName.trim()) {
+      toast.error("Please enter a template name");
+      return;
+    }
+
+    const sceneData = fabricCanvas.toJSON();
+    const thumbnailUrl = fabricCanvas.toDataURL({
+      format: 'png',
+      quality: 0.8,
+      multiplier: 0.3
+    });
+
+    const savedTemplate = await saveTemplate(templateName, sceneData, thumbnailUrl);
+    
+    if (savedTemplate) {
+      setTemplateName("");
+      setSaveDialogOpen(false);
+      onTemplateSaved?.();
+    }
   };
 
   useEffect(() => {
@@ -399,7 +436,40 @@ export const ImageEditor = ({ uploadedImage }: ImageEditorProps) => {
 
         {/* Export Controls */}
         <div className="space-y-2">
-          <Button onClick={exportImage} className="w-full" size="sm">
+          <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="w-full" size="sm">
+                <Save className="h-4 w-4 mr-2" />
+                Save as Template
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Save Template</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="template-name">Template Name</Label>
+                  <Input
+                    id="template-name"
+                    value={templateName}
+                    onChange={(e) => setTemplateName(e.target.value)}
+                    placeholder="Enter template name..."
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button onClick={handleSaveTemplate} className="flex-1">
+                    Save Template
+                  </Button>
+                  <Button variant="outline" onClick={() => setSaveDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+          
+          <Button onClick={exportImage} variant="outline" className="w-full" size="sm">
             <Download className="h-4 w-4 mr-2" />
             Export Image
           </Button>
