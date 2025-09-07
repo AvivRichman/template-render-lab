@@ -90,33 +90,56 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
 
     setFabricCanvas(canvas);
 
-    // Load template data if provided
-    if (templateData) {
-      canvas.loadFromJSON(templateData, () => {
-        canvas.renderAll();
-      });
-    }
-    // Load uploaded image if provided
-    else if (uploadedImage) {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        const fabricImage = new FabricImage(img, {
-          left: 100,
-          top: 100,
-          scaleX: 0.5,
-          scaleY: 0.5,
+    // Load content after canvas is fully initialized
+    const loadContent = () => {
+      // Load template data if provided
+      if (templateData) {
+        canvas.loadFromJSON(templateData, () => {
+          canvas.renderAll();
+          // Force a re-render to ensure visibility
+          setTimeout(() => {
+            canvas.renderAll();
+          }, 100);
         });
-        canvas.add(fabricImage);
-        canvas.renderAll();
-      };
-      img.src = uploadedImage;
-    }
+      }
+      // Load uploaded image if provided
+      else if (uploadedImage) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          const fabricImage = new FabricImage(img, {
+            left: 100,
+            top: 100,
+            scaleX: 0.5,
+            scaleY: 0.5,
+          });
+          canvas.add(fabricImage);
+          canvas.renderAll();
+        };
+        img.src = uploadedImage;
+      }
+    };
+
+    // Load content immediately after canvas setup
+    loadContent();
 
     return () => {
       canvas.dispose();
     };
   }, [uploadedImage, templateData]);
+
+  // Separate useEffect to handle template data changes
+  useEffect(() => {
+    if (fabricCanvas && templateData) {
+      fabricCanvas.loadFromJSON(templateData, () => {
+        fabricCanvas.renderAll();
+        // Force a re-render to ensure all objects are visible
+        setTimeout(() => {
+          fabricCanvas.renderAll();
+        }, 100);
+      });
+    }
+  }, [templateData, fabricCanvas]);
 
   const addText = () => {
     if (!fabricCanvas) return;
