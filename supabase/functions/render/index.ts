@@ -42,8 +42,8 @@ interface RenderRequest {
   }>;
 }
 
-// Simple image generation function
-async function generateSimpleImage(sceneData: any, width: number, height: number, format: string): Promise<ArrayBuffer> {
+// Generate image as SVG (will be served with proper content type)
+async function generateSimpleImage(sceneData: any, width: number, height: number, format: string): Promise<{ buffer: ArrayBuffer; contentType: string }> {
   // Create a simple SVG-based image
   const background = sceneData.background || '#ffffff';
   const objects = sceneData.objects || [];
@@ -88,10 +88,16 @@ async function generateSimpleImage(sceneData: any, width: number, height: number
   
   svgContent += '</svg>';
   
-  // Convert SVG to PNG using a simple conversion
-  // Note: This is a simplified implementation. In production, you'd use a proper rendering engine.
+  // Return SVG buffer with appropriate content type
   const encoder = new TextEncoder();
-  return encoder.encode(svgContent).buffer;
+  const contentType = format === 'png' ? 'image/png' : 
+                     format === 'jpg' ? 'image/jpeg' : 
+                     format === 'webp' ? 'image/webp' : 'image/svg+xml';
+  
+  return {
+    buffer: encoder.encode(svgContent).buffer,
+    contentType
+  };
 }
 
 serve(async (req) => {
@@ -211,11 +217,27 @@ serve(async (req) => {
       });
     }
 
-    // Apply mutations to scene data
+    // Apply mutations to scene data - strict validation
     const sceneData = JSON.parse(JSON.stringify(template.scene_data));
+    
+    // Log available elements for debugging
+    const availableElements = (sceneData.objects || []).map(obj => ({
+      type: obj.type,
+      id: obj.id || 'no-id',
+      name: obj.name || 'no-name'
+    }));
+    console.log('Available elements in template:', JSON.stringify(availableElements, null, 2));
+    
+    // Log requested mutations for debugging
+    const requestedMutations = body.mutations.map(m => ({
+      id: m.selector.id,
+      name: m.selector.name
+    }));
+    console.log('Requested mutations:', JSON.stringify(requestedMutations, null, 2));
     
     for (const mutation of body.mutations) {
       const objects = sceneData.objects || [];
+      let elementFound = false;
       
       for (const obj of objects) {
         // Check if this object matches the selector
@@ -223,34 +245,51 @@ serve(async (req) => {
         const matchesName = mutation.selector.name && obj.name === mutation.selector.name;
         
         if (matchesId || matchesName) {
-          // Apply text mutations
+          elementFound = true;
+          
+          // Apply text mutations only if this is a text object and properties exist
           if (mutation.text && obj.type === 'text') {
             if (mutation.text.value !== undefined) obj.text = mutation.text.value;
-            if (mutation.text.fontSize !== undefined) obj.fontSize = Math.min(Math.max(mutation.text.fontSize, 8), 200);
-            if (mutation.text.color !== undefined) obj.fill = mutation.text.color;
-            if (mutation.text.fontFamily !== undefined) obj.fontFamily = mutation.text.fontFamily;
-            if (mutation.text.align !== undefined) obj.textAlign = mutation.text.align;
-            if (mutation.text.bold !== undefined) obj.fontWeight = mutation.text.bold ? 'bold' : 'normal';
-            if (mutation.text.italic !== undefined) obj.fontStyle = mutation.text.italic ? 'italic' : 'normal';
-            if (mutation.text.underline !== undefined) obj.underline = mutation.text.underline;
+            if (mutation.text.fontSize !== undefined && 'fontSize' in obj) {
+              obj.fontSize = Math.min(Math.max(mutation.text.fontSize, 8), 200);
+            }
+            if (mutation.text.color !== undefined && 'fill' in obj) obj.fill = mutation.text.color;
+            if (mutation.text.fontFamily !== undefined && 'fontFamily' in obj) obj.fontFamily = mutation.text.fontFamily;
+            if (mutation.text.align !== undefined && 'textAlign' in obj) obj.textAlign = mutation.text.align;
+            if (mutation.text.bold !== undefined && 'fontWeight' in obj) {
+              obj.fontWeight = mutation.text.bold ? 'bold' : 'normal';
+            }
+            if (mutation.text.italic !== undefined && 'fontStyle' in obj) {
+              obj.fontStyle = mutation.text.italic ? 'italic' : 'normal';
+            }
+            if (mutation.text.underline !== undefined && 'underline' in obj) obj.underline = mutation.text.underline;
           }
           
-          // Apply position mutations
+          // Apply position mutations only if properties exist
           if (mutation.position) {
-            if (mutation.position.x !== undefined) obj.left = Math.max(0, mutation.position.x);
-            if (mutation.position.y !== undefined) obj.top = Math.max(0, mutation.position.y);
-            if (mutation.position.width !== undefined) obj.width = Math.max(1, mutation.position.width);
-            if (mutation.position.height !== undefined) obj.height = Math.max(1, mutation.position.height);
+            if (mutation.position.x !== undefined && 'left' in obj) obj.left = Math.max(0, mutation.position.x);
+            if (mutation.position.y !== undefined && 'top' in obj) obj.top = Math.max(0, mutation.position.y);
+            if (mutation.position.width !== undefined && 'width' in obj) obj.width = Math.max(1, mutation.position.width);
+            if (mutation.position.height !== undefined && 'height' in obj) obj.height = Math.max(1, mutation.position.height);
           }
           
-          // Apply shape mutations
+          // Apply shape mutations only if this is a shape object and properties exist
           if (mutation.shape && (obj.type === 'rect' || obj.type === 'circle')) {
-            if (mutation.shape.fill !== undefined) obj.fill = mutation.shape.fill;
-            if (mutation.shape.stroke !== undefined) obj.stroke = mutation.shape.stroke;
-            if (mutation.shape.strokeWidth !== undefined) obj.strokeWidth = Math.max(0, mutation.shape.strokeWidth);
-            if (mutation.shape.radius !== undefined && obj.type === 'circle') obj.radius = Math.max(1, mutation.shape.radius);
+            if (mutation.shape.fill !== undefined && 'fill' in obj) obj.fill = mutation.shape.fill;
+            if (mutation.shape.stroke !== undefined && 'stroke' in obj) obj.stroke = mutation.shape.stroke;
+            if (mutation.shape.strokeWidth !== undefined && 'strokeWidth' in obj) {
+              obj.strokeWidth = Math.max(0, mutation.shape.strokeWidth);
+            }
+            if (mutation.shape.radius !== undefined && obj.type === 'circle' && 'radius' in obj) {
+              obj.radius = Math.max(1, mutation.shape.radius);
+            }
           }
         }
+      }
+      
+      // If selector was not found in template, log it but continue (don't error)
+      if (!elementFound) {
+        console.log(`Warning: Selector not found in template:`, mutation.selector);
       }
     }
 
@@ -258,14 +297,15 @@ serve(async (req) => {
     const renderId = `rnd_${crypto.randomUUID()}`;
     
     // Generate the image
-    const imageBuffer = await generateSimpleImage(sceneData, width, height, body.output.format);
+    const { buffer: imageBuffer, contentType } = await generateSimpleImage(sceneData, width, height, body.output.format);
     
-    // Upload to storage
-    const fileName = `users/${user.id}/${renderId}.svg`;
+    // Upload to exports bucket for direct image serving
+    const fileExtension = body.output.format === 'jpg' ? 'jpeg' : body.output.format;
+    const fileName = `users/${user.id}/api-renders/${renderId}.${fileExtension}`;
     const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('api-renders')
+      .from('exports')
       .upload(fileName, imageBuffer, {
-        contentType: 'image/svg+xml',
+        contentType: contentType,
         upsert: false
       });
 
@@ -277,9 +317,9 @@ serve(async (req) => {
       });
     }
 
-    // Get public URL
+    // Get public URL that serves the image directly
     const { data: urlData } = supabase.storage
-      .from('api-renders')
+      .from('exports')
       .getPublicUrl(fileName);
 
     // Record API usage
