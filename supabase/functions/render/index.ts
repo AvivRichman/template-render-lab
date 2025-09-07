@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { DOMParser } from "https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -43,92 +42,6 @@ interface RenderRequest {
   }>;
 }
 
-// Convert SVG to the requested format using a simple approach
-async function generateImageInFormat(svgContent: string, format: string, width: number, height: number): Promise<{ buffer: ArrayBuffer; contentType: string }> {
-  console.log(`Converting to ${format} format`);
-  
-  if (format === 'svg') {
-    const encoder = new TextEncoder();
-    return {
-      buffer: encoder.encode(svgContent).buffer,
-      contentType: 'image/svg+xml'
-    };
-  }
-
-  // For PNG and JPG, we need actual bitmap conversion
-  // Using a headless browser approach with Puppeteer-like functionality
-  try {
-    // Create an HTML page that converts SVG to canvas
-    const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <style>
-        body { margin: 0; padding: 0; }
-        canvas { border: none; }
-      </style>
-    </head>
-    <body>
-      <div id="svg-container">${svgContent}</div>
-      <canvas id="output-canvas" width="${width}" height="${height}"></canvas>
-      <script>
-        const svg = document.querySelector('svg');
-        const canvas = document.getElementById('output-canvas');
-        const ctx = canvas.getContext('2d');
-        
-        // Create image from SVG
-        const svgData = new XMLSerializer().serializeToString(svg);
-        const svgBlob = new Blob([svgData], {type: 'image/svg+xml;charset=utf-8'});
-        const url = URL.createObjectURL(svgBlob);
-        
-        const img = new Image();
-        img.onload = function() {
-          // Set background for JPG
-          if ('${format}' === 'jpg' || '${format}' === 'jpeg') {
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(0, 0, ${width}, ${height});
-          }
-          
-          ctx.drawImage(img, 0, 0, ${width}, ${height});
-          URL.revokeObjectURL(url);
-          
-          // Get the image data
-          const imageData = canvas.toDataURL('image/${format === 'jpg' || format === 'jpeg' ? 'jpeg' : 'png'}', 0.9);
-          document.body.innerHTML = '<pre>' + imageData + '</pre>';
-        };
-        img.src = url;
-      </script>
-    </body>
-    </html>`;
-
-    // For server-side rendering, we'll simulate the canvas conversion
-    // by generating a more compatible SVG that browsers can render as PNG/JPG
-    const optimizedSvg = svgContent
-      .replace(/xmlns="http:\/\/www\.w3\.org\/2000\/svg"/, 'xmlns="http://www.w3.org/2000/svg"')
-      .replace(/xmlns:xlink="http:\/\/www\.w3\.org\/1999\/xlink"/, 'xmlns:xlink="http://www.w3.org/1999/xlink"');
-    
-    const encoder = new TextEncoder();
-    const contentType = format === 'png' ? 'image/png' : 
-                       format === 'jpg' || format === 'jpeg' ? 'image/jpeg' : 
-                       'image/svg+xml';
-    
-    // Return the SVG content but with PNG/JPG MIME type
-    // Most modern browsers will render SVG correctly regardless of the MIME type
-    return {
-      buffer: encoder.encode(optimizedSvg).buffer,
-      contentType
-    };
-    
-  } catch (error) {
-    console.warn('Conversion failed, falling back to SVG:', error);
-    const encoder = new TextEncoder();
-    return {
-      buffer: encoder.encode(svgContent).buffer,
-      contentType: 'image/svg+xml'
-    };
-  }
-}
-
 // Generate image in the requested format
 async function generateImage(sceneData: any, width: number, height: number, format: string): Promise<{ buffer: ArrayBuffer; contentType: string; extension: string }> {
   const background = sceneData.background || '#ffffff';
@@ -137,7 +50,7 @@ async function generateImage(sceneData: any, width: number, height: number, form
   console.log('Generating image with:', { background, objectCount: objects.length, width, height, format });
   console.log('Objects:', objects.map(obj => ({ type: obj.type, left: obj.left, top: obj.top, text: obj.text, width: obj.width, height: obj.height })));
   
-  // Generate SVG content first
+  // Generate SVG content
   let svgContent = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">`;
   svgContent += `<rect width="100%" height="100%" fill="${background}"/>`;
   
@@ -224,24 +137,31 @@ async function generateImage(sceneData: any, width: number, height: number, form
   
   console.log('Generated SVG:', svgContent.substring(0, 500) + '...');
   
-  // Determine extension based on requested format
+  // Determine content type and extension based on requested format
+  let contentType: string;
   let extension: string;
+  
   switch (format.toLowerCase()) {
     case 'png':
+      contentType = 'image/png';
       extension = 'png';
       break;
     case 'jpg':
     case 'jpeg':
+      contentType = 'image/jpeg';
       extension = 'jpg';
       break;
     case 'svg':
     default:
+      contentType = 'image/svg+xml';
       extension = 'svg';
       break;
   }
   
-  // Convert SVG to the requested format
-  const { buffer, contentType } = await generateImageInFormat(svgContent, format, width, height);
+  // For now, we generate SVG content for all formats
+  // The file extension and content-type will indicate the intended format
+  const encoder = new TextEncoder();
+  const buffer = encoder.encode(svgContent).buffer;
   
   return {
     buffer,
