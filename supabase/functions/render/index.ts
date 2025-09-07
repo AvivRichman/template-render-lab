@@ -47,56 +47,83 @@ async function generateSimpleImage(sceneData: any, width: number, height: number
   const background = sceneData.background || '#ffffff';
   const objects = sceneData.objects || [];
   
-  let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">`;
+  console.log('Generating image with:', { background, objectCount: objects.length, width, height });
+  console.log('Objects:', objects.map(obj => ({ type: obj.type, left: obj.left, top: obj.top, text: obj.text, width: obj.width, height: obj.height })));
+  
+  let svgContent = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">`;
   svgContent += `<rect width="100%" height="100%" fill="${background}"/>`;
   
-  // Render objects with proper type checking
+  // Render objects with proper type checking for Fabric.js types
   for (const obj of objects) {
-    if (obj.type === 'text' || obj.type === 'Text') {
+    console.log('Processing object:', { type: obj.type, left: obj.left, top: obj.top });
+    
+    // Handle all text types including Fabric.js types
+    if (obj.type === 'text' || obj.type === 'Text' || obj.type === 'i-text' || obj.type === 'textbox' || obj.type === 'FabricText') {
       const x = obj.left || 0;
-      const y = (obj.top || 0) + (obj.fontSize || 16);
-      const fontSize = obj.fontSize || 16;
+      const y = (obj.top || 0) + (obj.fontSize || 24); // Adjust for text baseline
+      const fontSize = obj.fontSize || 24;
       const fontFamily = obj.fontFamily || 'Arial';
       const fill = obj.fill || '#000000';
       const fontWeight = obj.fontWeight || 'normal';
       const fontStyle = obj.fontStyle || 'normal';
       const textAnchor = obj.textAlign === 'center' ? 'middle' : obj.textAlign === 'right' ? 'end' : 'start';
+      const textDecoration = obj.underline ? 'underline' : 'none';
       
       // Escape text content for XML
-      const escapedText = (obj.text || 'Text').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      svgContent += `<text x="${x}" y="${y}" font-size="${fontSize}" font-family="${fontFamily}" fill="${fill}" font-weight="${fontWeight}" font-style="${fontStyle}" text-anchor="${textAnchor}">${escapedText}</text>`;
-    } else if (obj.type === 'rect' || obj.type === 'rectangle') {
+      const escapedText = (obj.text || 'Sample Text').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      
+      if (escapedText.trim()) {
+        svgContent += `<text x="${x}" y="${y}" font-size="${fontSize}" font-family="${fontFamily}" fill="${fill}" font-weight="${fontWeight}" font-style="${fontStyle}" text-anchor="${textAnchor}" text-decoration="${textDecoration}">${escapedText}</text>`;
+      }
+    } 
+    // Handle rectangles
+    else if (obj.type === 'rect' || obj.type === 'rectangle' || obj.type === 'Rect') {
       const x = obj.left || 0;
       const y = obj.top || 0;
-      const rectWidth = obj.width || 100;
-      const rectHeight = obj.height || 100;
+      const rectWidth = (obj.width || 100) * (obj.scaleX || 1);
+      const rectHeight = (obj.height || 100) * (obj.scaleY || 1);
       const fill = obj.fill || '#000000';
       const stroke = obj.stroke || 'none';
       const strokeWidth = obj.strokeWidth || 0;
       
       svgContent += `<rect x="${x}" y="${y}" width="${rectWidth}" height="${rectHeight}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
-    } else if (obj.type === 'circle') {
-      const cx = (obj.left || 0) + (obj.radius || 50);
-      const cy = (obj.top || 0) + (obj.radius || 50);
-      const r = obj.radius || 50;
+    } 
+    // Handle circles
+    else if (obj.type === 'circle' || obj.type === 'Circle') {
+      const radius = (obj.radius || 50) * (obj.scaleX || 1);
+      const cx = (obj.left || 0) + radius;
+      const cy = (obj.top || 0) + radius;
       const fill = obj.fill || '#000000';
       const stroke = obj.stroke || 'none';
       const strokeWidth = obj.strokeWidth || 0;
       
-      svgContent += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
-    } else if (obj.type === 'Image' || obj.type === 'image') {
-      // Handle fabric.js Image objects
+      svgContent += `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
+    } 
+    // Handle lines
+    else if (obj.type === 'line' || obj.type === 'Line') {
+      const x1 = obj.x1 || 0;
+      const y1 = obj.y1 || 0;
+      const x2 = obj.x2 || 100;
+      const y2 = obj.y2 || 0;
+      const stroke = obj.stroke || '#000000';
+      const strokeWidth = obj.strokeWidth || 2;
+      
+      svgContent += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
+    } 
+    // Handle images
+    else if (obj.type === 'Image' || obj.type === 'image' || obj.type === 'FabricImage') {
       const x = obj.left || 0;
       const y = obj.top || 0;
-      const imgWidth = obj.width * (obj.scaleX || 1) || 100;
-      const imgHeight = obj.height * (obj.scaleY || 1) || 100;
+      const imgWidth = (obj.width || 100) * (obj.scaleX || 1);
+      const imgHeight = (obj.height || 100) * (obj.scaleY || 1);
       const src = obj.src || obj._originalElement?.src || obj._element?.src;
       
-      if (src) {
-        // Convert to base64 if it's a blob URL or handle different image sources
+      console.log('Processing image:', { x, y, imgWidth, imgHeight, src: src?.substring(0, 100) });
+      
+      if (src && src.trim()) {
         try {
           if (src.startsWith('data:') || src.startsWith('http')) {
-            svgContent += `<image x="${x}" y="${y}" width="${imgWidth}" height="${imgHeight}" href="${src}" preserveAspectRatio="none"/>`;
+            svgContent += `<image x="${x}" y="${y}" width="${imgWidth}" height="${imgHeight}" href="${src}" preserveAspectRatio="xMidYMid slice"/>`;
           }
         } catch (e) {
           console.warn('Failed to include image in render:', e);
@@ -107,23 +134,15 @@ async function generateSimpleImage(sceneData: any, width: number, height: number
   
   svgContent += '</svg>';
   
-  // Return appropriate format
+  console.log('Generated SVG:', svgContent.substring(0, 500) + '...');
+  
+  // Always return SVG with correct content type
   const encoder = new TextEncoder();
   const svgBuffer = encoder.encode(svgContent).buffer;
   
-  // For now return SVG, but with proper content type based on requested format
-  let contentType = 'image/svg+xml';
-  if (format === 'png') {
-    contentType = 'image/png';
-  } else if (format === 'jpg' || format === 'jpeg') {
-    contentType = 'image/jpeg';
-  } else if (format === 'webp') {
-    contentType = 'image/webp';
-  }
-  
   return {
     buffer: svgBuffer,
-    contentType: contentType
+    contentType: 'image/svg+xml'
   };
 }
 
@@ -326,13 +345,12 @@ serve(async (req) => {
     // Generate the image
     const { buffer: imageBuffer, contentType } = await generateSimpleImage(sceneData, width, height, body.output.format);
     
-    // Upload to exports bucket for direct image serving
-    const fileExtension = body.output.format === 'jpg' ? 'jpeg' : body.output.format;
-    const fileName = `users/${user.id}/api-renders/${renderId}.${fileExtension}`;
+    // Upload to exports bucket for direct image serving (always use .svg for now)
+    const fileName = `users/${user.id}/api-renders/${renderId}.svg`;
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('exports')
       .upload(fileName, imageBuffer, {
-        contentType: contentType,
+        contentType: 'image/svg+xml',
         upsert: true
       });
 
@@ -353,7 +371,7 @@ serve(async (req) => {
     const { data: fileInfo, error: fileError } = await supabase.storage
       .from('exports')
       .list(`users/${user.id}/api-renders`, {
-        search: `${renderId}.${fileExtension}`
+        search: `${renderId}.svg`
       });
 
     if (fileError || !fileInfo || fileInfo.length === 0) {
