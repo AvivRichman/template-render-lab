@@ -93,20 +93,6 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
     // Load template data if provided
     if (templateData) {
       canvas.loadFromJSON(templateData, () => {
-        // Ensure objects have proper ids and names for API targeting
-        canvas.getObjects().forEach((obj, index) => {
-          const objAny = obj as any;
-          if (!objAny.id) {
-            objAny.id = `${obj.type}_${Date.now()}_${index}`;
-          }
-          if (!objAny.name) {
-            if (obj.type === 'text' && objAny.text) {
-              objAny.name = objAny.text.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 20) || 'text';
-            } else {
-              objAny.name = `${obj.type}_${index}`;
-            }
-          }
-        });
         canvas.renderAll();
       });
     }
@@ -120,8 +106,6 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
           top: 100,
           scaleX: 0.5,
           scaleY: 0.5,
-          id: `image_${Date.now()}`,
-          name: 'uploaded_image'
         });
         canvas.add(fabricImage);
         canvas.renderAll();
@@ -254,22 +238,7 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
       return;
     }
 
-    // Ensure all objects have ids and names before saving
-    fabricCanvas.getObjects().forEach((obj, index) => {
-      const objAny = obj as any;
-      if (!objAny.id) {
-        objAny.id = `${obj.type}_${Date.now()}_${index}`;
-      }
-      if (!objAny.name) {
-        if (obj.type === 'text' && objAny.text) {
-          objAny.name = objAny.text.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 20) || 'text';
-        } else {
-          objAny.name = `${obj.type}_${index}`;
-        }
-      }
-    });
-
-    const sceneData = fabricCanvas.toObject(['id', 'name']);
+    const sceneData = fabricCanvas.toJSON();
     const thumbnailUrl = fabricCanvas.toDataURL({
       format: 'png',
       quality: 0.8,
