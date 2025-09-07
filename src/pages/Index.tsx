@@ -18,7 +18,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { ImageEditor } from "@/components/ImageEditor";
 import { UploadArea } from "@/components/UploadArea";
 import { Templates } from "@/components/Templates";
-import { APIDemo } from "@/components/APIDemo";
+import { APIDocs } from "@/components/APIDocs";
 import { useTemplates } from "@/hooks/useTemplates";
 
 const Index = () => {
@@ -143,7 +143,7 @@ const Index = () => {
             </TabsContent>
 
             <TabsContent value="api" className="space-y-6">
-              <APIDemo />
+              <APIDocs />
             </TabsContent>
           </div>
         </Tabs>

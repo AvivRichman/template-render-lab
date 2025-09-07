@@ -131,6 +131,8 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
       fontStyle: isItalic ? 'italic' : 'normal',
       underline: isUnderline,
       textAlign: textAlign,
+      id: `text_${Date.now()}`,
+      name: textContent.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 20) || 'text'
     });
     
     fabricCanvas.add(text);
@@ -154,6 +156,8 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
           fill: textColor,
           stroke: "#000000",
           strokeWidth: 2,
+          id: `rect_${Date.now()}`,
+          name: 'rectangle'
         });
         break;
       case "circle":
@@ -164,12 +168,16 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
           fill: textColor,
           stroke: "#000000",
           strokeWidth: 2,
+          id: `circle_${Date.now()}`,
+          name: 'circle'
         });
         break;
       case "line":
         shape = new Line([50, 50, 200, 50], {
           stroke: textColor,
           strokeWidth: 2,
+          id: `line_${Date.now()}`,
+          name: 'line'
         });
         break;
     }
