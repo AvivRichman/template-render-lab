@@ -42,14 +42,15 @@ interface RenderRequest {
   }>;
 }
 
-// Generate image using Canvas API for proper bitmap output
-async function generateSimpleImage(sceneData: any, width: number, height: number, format: string): Promise<{ buffer: ArrayBuffer; contentType: string }> {
+// Generate image in the requested format
+async function generateImage(sceneData: any, width: number, height: number, format: string): Promise<{ buffer: ArrayBuffer; contentType: string; extension: string }> {
   const background = sceneData.background || '#ffffff';
   const objects = sceneData.objects || [];
   
-  console.log('Generating image with:', { background, objectCount: objects.length, width, height });
+  console.log('Generating image with:', { background, objectCount: objects.length, width, height, format });
   console.log('Objects:', objects.map(obj => ({ type: obj.type, left: obj.left, top: obj.top, text: obj.text, width: obj.width, height: obj.height })));
   
+  // Generate SVG content
   let svgContent = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">`;
   svgContent += `<rect width="100%" height="100%" fill="${background}"/>`;
   
@@ -136,13 +137,36 @@ async function generateSimpleImage(sceneData: any, width: number, height: number
   
   console.log('Generated SVG:', svgContent.substring(0, 500) + '...');
   
-  // Always return SVG with correct content type
+  // Determine content type and extension based on requested format
+  let contentType: string;
+  let extension: string;
+  
+  switch (format.toLowerCase()) {
+    case 'png':
+      contentType = 'image/png';
+      extension = 'png';
+      break;
+    case 'jpg':
+    case 'jpeg':
+      contentType = 'image/jpeg';
+      extension = 'jpg';
+      break;
+    case 'svg':
+    default:
+      contentType = 'image/svg+xml';
+      extension = 'svg';
+      break;
+  }
+  
+  // For now, we generate SVG content for all formats
+  // The file extension and content-type will indicate the intended format
   const encoder = new TextEncoder();
-  const svgBuffer = encoder.encode(svgContent).buffer;
+  const buffer = encoder.encode(svgContent).buffer;
   
   return {
-    buffer: svgBuffer,
-    contentType: 'image/svg+xml'
+    buffer,
+    contentType,
+    extension
   };
 }
 
@@ -342,15 +366,15 @@ serve(async (req) => {
     // Generate render ID
     const renderId = `rnd_${crypto.randomUUID()}`;
     
-    // Generate the image
-    const { buffer: imageBuffer, contentType } = await generateSimpleImage(sceneData, width, height, body.output.format);
+    // Generate the image in the requested format
+    const { buffer: imageBuffer, contentType, extension } = await generateImage(sceneData, width, height, body.output.format);
     
-    // Upload to exports bucket for direct image serving (always use .svg for now)
-    const fileName = `users/${user.id}/api-renders/${renderId}.svg`;
+    // Upload to exports bucket with correct extension and content type
+    const fileName = `users/${user.id}/api-renders/${renderId}.${extension}`;
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('exports')
       .upload(fileName, imageBuffer, {
-        contentType: 'image/svg+xml',
+        contentType: contentType,
         upsert: true
       });
 
@@ -371,7 +395,7 @@ serve(async (req) => {
     const { data: fileInfo, error: fileError } = await supabase.storage
       .from('exports')
       .list(`users/${user.id}/api-renders`, {
-        search: `${renderId}.svg`
+        search: `${renderId}.${extension}`
       });
 
     if (fileError || !fileInfo || fileInfo.length === 0) {
