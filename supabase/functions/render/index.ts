@@ -434,93 +434,55 @@ async function generatePNGImage(sceneData: any, originalImageUrl: string | null,
       }
     }
 
-    // If all external services fail, create a simple canvas-based fallback
+    // If all external services fail, return the original image or create simple SVG fallback
     if (!pngBuffer) {
-      console.log('All external services failed, creating fallback PNG');
+      console.log('All external services failed, falling back to SVG approach');
       
-      // Create a simple PNG using manual canvas rendering (server-side simulation)
-      const canvas = new OffscreenCanvas(canvasWidth, canvasHeight);
-      const ctx = canvas.getContext('2d');
+      // Create SVG as fallback and upload it as PNG format
+      let svgContent = `<svg width="${canvasWidth}" height="${canvasHeight}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">`;
       
-      // Fill background
-      ctx.fillStyle = 'white';
-      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-      
-      // Draw background image if available
+      // Add background
       if (originalImageUrl) {
-        try {
-          const imageResponse = await fetch(originalImageUrl);
-          const imageBuffer = await imageResponse.arrayBuffer();
-          const imageBlob = new Blob([imageBuffer]);
-          const bitmap = await createImageBitmap(imageBlob);
-          ctx.drawImage(bitmap, 0, 0, canvasWidth, canvasHeight);
-        } catch (error) {
-          console.log('Failed to load background image:', error.message);
-        }
+        svgContent += `<image href="${originalImageUrl}" width="${canvasWidth}" height="${canvasHeight}" preserveAspectRatio="xMidYMid slice"/>`;
+      } else {
+        svgContent += `<rect width="${canvasWidth}" height="${canvasHeight}" fill="white"/>`;
       }
       
-      // Draw fabric objects
+      // Add objects
       const objects = sceneData.objects || [];
       for (const obj of objects) {
         if (obj.type === 'text' || obj.type === 'textbox' || obj.type === 'i-text') {
           const text = obj.text || obj.value || obj.content || 'Text';
           const x = obj.left || 0;
           const y = (obj.top || 0) + (obj.fontSize || 24);
+          const fontSize = obj.fontSize || 24;
+          const fill = obj.fill || '#000000';
+          const fontFamily = obj.fontFamily || 'Arial';
+          const fontWeight = obj.fontWeight || 'normal';
+          const fontStyle = obj.fontStyle || 'normal';
+          const textAnchor = obj.textAlign === 'center' ? 'middle' : obj.textAlign === 'right' ? 'end' : 'start';
           
-          ctx.font = `${obj.fontWeight || 'normal'} ${obj.fontStyle || 'normal'} ${obj.fontSize || 24}px ${obj.fontFamily || 'Arial'}`;
-          ctx.fillStyle = obj.fill || '#000000';
-          ctx.textAlign = obj.textAlign || 'left';
+          let textDecoration = '';
+          if (obj.underline) textDecoration += ' underline';
           
-          if (obj.underline) {
-            ctx.fillText(obj.text, x, y);
-            const textWidth = ctx.measureText(text).width;
-            ctx.strokeStyle = obj.fill || '#000000';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(x, y + 2);
-            ctx.lineTo(x + textWidth, y + 2);
-            ctx.stroke();
-          } else {
-            ctx.fillText(text, x, y);
-          }
-        } else if (obj.type === 'rect') {
-          ctx.fillStyle = obj.fill || '#000000';
-          ctx.fillRect(obj.left || 0, obj.top || 0, obj.width || 100, obj.height || 100);
-          
-          if (obj.stroke && obj.strokeWidth > 0) {
-            ctx.strokeStyle = obj.stroke;
-            ctx.lineWidth = obj.strokeWidth;
-            ctx.strokeRect(obj.left || 0, obj.top || 0, obj.width || 100, obj.height || 100);
-          }
-        } else if (obj.type === 'circle') {
-          const centerX = (obj.left || 0) + (obj.radius || 50);
-          const centerY = (obj.top || 0) + (obj.radius || 50);
-          const radius = obj.radius || 50;
-          
-          ctx.beginPath();
-          ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
-          ctx.fillStyle = obj.fill || '#000000';
-          ctx.fill();
-          
-          if (obj.stroke && obj.strokeWidth > 0) {
-            ctx.strokeStyle = obj.stroke;
-            ctx.lineWidth = obj.strokeWidth;
-            ctx.stroke();
-          }
+          svgContent += `<text x="${x}" y="${y}" font-size="${fontSize}" fill="${fill}" font-family="${fontFamily}" font-weight="${fontWeight}" font-style="${fontStyle}" text-anchor="${textAnchor}" text-decoration="${textDecoration}">${text}</text>`;
         }
       }
       
-      // Convert canvas to PNG
-      const blob = await canvas.convertToBlob({ type: 'image/png' });
-      pngBuffer = new Uint8Array(await blob.arrayBuffer());
+      svgContent += '</svg>';
+      pngBuffer = new TextEncoder().encode(svgContent);
     }
 
-    // Upload PNG to Supabase storage
+    // Upload PNG to Supabase storage (or SVG as fallback)
     const fileName = `${renderId}.png`;
+    const contentType = pngBuffer.length > 100 && 
+      new TextDecoder().decode(pngBuffer.slice(0, 4)).includes('<svg') ? 
+      'image/svg+xml' : 'image/png';
+    
     const { data, error } = await supabase.storage
       .from('api-renders')
       .upload(fileName, pngBuffer, {
-        contentType: 'image/png',
+        contentType: contentType,
         upsert: true
       });
     
