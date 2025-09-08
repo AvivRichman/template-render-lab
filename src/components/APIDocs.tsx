@@ -66,116 +66,95 @@ export const APIDocs = () => {
   const getTemplateElements = (template: any) => {
     if (!template?.scene_data?.objects) return [];
     
-    return template.scene_data.objects.map((obj: any) => ({
-      id: obj.id || 'unknown',
-      name: obj.name || obj.type || 'unnamed',
-      type: obj.type || 'unknown'
-    }));
+    return template.scene_data.objects
+      .filter((obj: any) => obj.type === 'text')
+      .map((obj: any, index: number) => ({
+        id: obj.id || 'unknown',
+        name: obj.name || `text${index + 1}`,
+        type: obj.type || 'text',
+        text: obj.text || 'Sample text'
+      }));
   };
 
-  const curlExample = `curl -X POST "${baseUrl}/render" \\
+  const getSelectedTemplateElements = () => {
+    if (!selectedTemplate) return [];
+    const template = templates.find(t => t.id === selectedTemplate);
+    return template ? getTemplateElements(template) : [];
+  };
+
+  const generateDynamicParams = () => {
+    const elements = getSelectedTemplateElements();
+    if (elements.length === 0) {
+      return {
+        urlParams: 'text1=Hello%20World&text2=Sample%20Text',
+        jsonParams: elements
+      };
+    }
+    
+    const urlParams = elements
+      .map((el, idx) => `text${idx + 1}=${encodeURIComponent(`New ${el.name || 'Text'}`)}`)
+      .join('&');
+    
+    return { urlParams, jsonParams: elements };
+  };
+
+  const { urlParams, jsonParams } = generateDynamicParams();
+
+  const curlExample = selectedTemplate && jsonParams.length > 0 
+    ? `curl -X POST "${baseUrl}/render?${urlParams}" \\
   -H "Authorization: Bearer ${bearerToken}" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "templateId": "${selectedTemplate || 'TPL_REPLACE'}",
-    "output": {
-      "format": "png",
-      "width": 1080,
-      "height": 1350,
-      "background": "transparent"
-    },
-    "mutations": [
-      {
-        "selector": { "name": "headline" },
-        "text": {
-          "value": "Hello World",
-          "fontSize": 64,
-          "color": "#ffffff",
-          "align": "center"
-        }
-      },
-      {
-        "selector": { "id": "badge" },
-        "shape": {
-          "type": "rectangle",
-          "fill": "#000000",
-          "stroke": "#ffffff",
-          "strokeWidth": 2
-        }
-      }
-    ]
+    "templateId": "${selectedTemplate}"
+  }'`
+    : `curl -X POST "${baseUrl}/render" \\
+  -H "Authorization: Bearer ${bearerToken}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "templateId": "${selectedTemplate || 'YOUR_TEMPLATE_ID'}",
+    "text1": "Hello World",
+    "text2": "Sample Text"
   }'`;
 
-  const jsExample = `const response = await fetch('${baseUrl}/render', {
+  const jsExample = selectedTemplate && jsonParams.length > 0
+    ? `const response = await fetch('${baseUrl}/render?${urlParams}', {
   method: 'POST',
   headers: {
     'Authorization': 'Bearer ${bearerToken}',
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
-    templateId: '${selectedTemplate || 'TPL_REPLACE'}',
-    output: {
-      format: 'png',
-      width: 1080,
-      height: 1350,
-      background: 'transparent'
-    },
-    mutations: [
-      {
-        selector: { name: 'headline' },
-        text: {
-          value: 'Hello World',
-          fontSize: 64,
-          color: '#ffffff',
-          align: 'center'
-        }
-      }
-    ]
+    templateId: '${selectedTemplate}'
+  })
+});
+
+const data = await response.json();
+console.log('Rendered image URL:', data.imageUrl);`
+    : `const response = await fetch('${baseUrl}/render', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer ${bearerToken}',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    templateId: '${selectedTemplate || 'YOUR_TEMPLATE_ID'}',
+    text1: 'Hello World',
+    text2: 'Sample Text'
   })
 });
 
 const data = await response.json();
 console.log('Rendered image URL:', data.imageUrl);`;
 
-  const jsonExample = `{
-  "templateId": "${selectedTemplate || 'TPL_REPLACE'}",
-  "output": {
-    "format": "png",
-    "width": 1080,
-    "height": 1350,
-    "background": "transparent"
-  },
-  "mutations": [
-    {
-      "selector": { "name": "headline" },
-      "text": {
-        "value": "Hello World",
-        "fontSize": 64,
-        "color": "#ffffff",
-        "align": "center",
-        "bold": true
-      }
-    },
-    {
-      "selector": { "id": "badge" },
-      "shape": {
-        "type": "rectangle",
-        "fill": "#000000",
-        "stroke": "#ffffff",
-        "strokeWidth": 2,
-        "radius": 12
-      }
-    },
-    {
-      "selector": { "name": "logo" },
-      "position": {
-        "x": 100,
-        "y": 50,
-        "width": 200,
-        "height": 100
-      }
-    }
-  ]
+  const jsonExample = selectedTemplate && jsonParams.length > 0
+    ? `{
+  "templateId": "${selectedTemplate}",${jsonParams.map((el, idx) => `
+  "text${idx + 1}": "New ${el.name || 'Text'}"`).join(',')}
+}`
+    : `{
+  "templateId": "${selectedTemplate || 'YOUR_TEMPLATE_ID'}",
+  "text1": "Hello World",
+  "text2": "Sample Text"
 }`;
 
   return (
