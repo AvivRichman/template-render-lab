@@ -64,26 +64,36 @@ serve(async (req) => {
       
       if (template.scene_data?.objects) {
         template.scene_data.objects.forEach((obj: any, index: number) => {
-          if (obj.type === 'text' || obj.type === 'i-text') {
+          // Handle fabric.js text objects
+          if (obj.text !== undefined) {
             elements.push({
               id: obj.id || `text_${index}`,
               type: 'text',
               content: obj.text || '',
-              editable_key: obj.text?.toLowerCase().replace(/\s+/g, '_') || `text_${index}`,
+              editable_key: obj.text?.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') || `text_${index}`,
               properties: {
                 fontSize: obj.fontSize,
                 fontFamily: obj.fontFamily,
                 fill: obj.fill,
                 left: obj.left,
-                top: obj.top
+                top: obj.top,
+                angle: obj.angle,
+                scaleX: obj.scaleX,
+                scaleY: obj.scaleY
               }
             });
-          } else if (obj.type === 'rect' || obj.type === 'circle' || obj.type === 'line') {
+          } 
+          // Handle fabric.js shape objects
+          else if (obj.fill || obj.stroke) {
+            const shapeType = obj.rx !== undefined ? 'rect' : 
+                             obj.radius !== undefined ? 'circle' : 
+                             obj.x1 !== undefined ? 'line' : 'shape';
+            
             elements.push({
               id: obj.id || `shape_${index}`,
               type: 'shape',
-              shape_type: obj.type,
-              editable_key: `${obj.type}_${index}`,
+              shape_type: shapeType,
+              editable_key: `${shapeType}_${index}`,
               properties: {
                 fill: obj.fill,
                 stroke: obj.stroke,
@@ -91,7 +101,47 @@ serve(async (req) => {
                 top: obj.top,
                 width: obj.width,
                 height: obj.height,
-                radius: obj.radius
+                radius: obj.radius,
+                angle: obj.angle,
+                scaleX: obj.scaleX,
+                scaleY: obj.scaleY,
+                rx: obj.rx,
+                ry: obj.ry
+              }
+            });
+          }
+          // Handle image objects
+          else if (obj.src) {
+            elements.push({
+              id: obj.id || `image_${index}`,
+              type: 'image',
+              content: obj.src.substring(0, 50) + '...',
+              editable_key: `image_${index}`,
+              properties: {
+                left: obj.left,
+                top: obj.top,
+                width: obj.width,
+                height: obj.height,
+                angle: obj.angle,
+                scaleX: obj.scaleX,
+                scaleY: obj.scaleY,
+                cropX: obj.cropX,
+                cropY: obj.cropY
+              }
+            });
+          }
+          // Handle other objects
+          else {
+            elements.push({
+              id: obj.id || `element_${index}`,
+              type: 'unknown',
+              editable_key: `element_${index}`,
+              properties: {
+                left: obj.left,
+                top: obj.top,
+                angle: obj.angle,
+                scaleX: obj.scaleX,
+                scaleY: obj.scaleY
               }
             });
           }

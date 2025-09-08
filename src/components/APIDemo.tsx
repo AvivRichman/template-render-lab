@@ -475,8 +475,15 @@ print(result["image_url"])`;
                             <div key={element.id} className="bg-[hsl(var(--editor-background))] p-3 rounded-lg border-l-4 border-l-primary">
                               <div className="flex items-start justify-between mb-2">
                                 <div className="flex items-center gap-2">
-                                  <Badge variant={element.type === 'text' ? 'default' : 'secondary'} className="text-xs">
-                                    {element.type === 'text' ? 'Text' : element.shape_type ? `Shape: ${element.shape_type}` : 'Shape'}
+                                  <Badge variant={
+                                    element.type === 'text' ? 'default' : 
+                                    element.type === 'image' ? 'outline' : 
+                                    'secondary'
+                                  } className="text-xs">
+                                    {element.type === 'text' ? 'Text' : 
+                                     element.type === 'image' ? 'Image' :
+                                     element.type === 'shape' ? `Shape: ${element.shape_type}` : 
+                                     element.type.charAt(0).toUpperCase() + element.type.slice(1)}
                                   </Badge>
                                   <span className="text-xs font-mono text-muted-foreground">#{index + 1}</span>
                                 </div>
