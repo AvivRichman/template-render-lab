@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createCanvas, loadImage, CanvasRenderingContext2D } from "https://deno.land/x/canvas@v1.4.1/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -252,21 +253,21 @@ serve(async (req) => {
     // Generate render ID for changes
     const renderId = `edit_${crypto.randomUUID()}`;
     
-    // For now, we'll need to process the scene data on the client side
-    // Generate a new edited image URL with the updated scene data
-    const newImageUrl = `${supabaseUrl}/storage/v1/object/public/api-renders/${renderId}.png`;
+    // Generate new image with all changes applied
+    const newImageUrl = await generateImageFromSceneData(sceneData, template.original_image_url, renderId, supabase);
     
-    // Store the updated scene data for potential future processing
+    // Store the updated scene data and new image URL
     await supabase
       .from('templates')
       .update({ 
         scene_data: sceneData,
+        edited_image_url: newImageUrl,
         updated_at: new Date().toISOString()
       })
       .eq('id', body.templateId)
       .eq('user_id', user.id);
 
-    let finalImageUrl = template.edited_image_url || newImageUrl;
+    let finalImageUrl = newImageUrl;
 
     // Record API usage
     await supabase
@@ -294,3 +295,185 @@ serve(async (req) => {
     });
   }
 });
+
+async function generateImageFromSceneData(sceneData: any, originalImageUrl: string | null, renderId: string, supabase: any): Promise<string> {
+  const canvasWidth = 800;
+  const canvasHeight = 600;
+  
+  // Create canvas
+  const canvas = createCanvas(canvasWidth, canvasHeight);
+  const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+  
+  // Set white background
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+  
+  try {
+    // Load and draw original image if exists
+    if (originalImageUrl) {
+      const backgroundImage = await loadImage(originalImageUrl);
+      ctx.drawImage(backgroundImage, 0, 0, canvasWidth, canvasHeight);
+    }
+    
+    // Render all objects from scene data
+    const objects = sceneData.objects || [];
+    
+    for (const obj of objects) {
+      ctx.save();
+      
+      // Apply transformations
+      if (obj.left || obj.top) {
+        ctx.translate(obj.left || 0, obj.top || 0);
+      }
+      
+      if (obj.angle) {
+        ctx.rotate((obj.angle * Math.PI) / 180);
+      }
+      
+      if (obj.scaleX || obj.scaleY) {
+        ctx.scale(obj.scaleX || 1, obj.scaleY || 1);
+      }
+      
+      // Render based on object type
+      if (obj.type === 'text' || obj.type === 'textbox' || obj.type === 'i-text') {
+        renderText(ctx, obj);
+      } else if (obj.type === 'rect') {
+        renderRectangle(ctx, obj);
+      } else if (obj.type === 'circle') {
+        renderCircle(ctx, obj);
+      } else if (obj.type === 'line') {
+        renderLine(ctx, obj);
+      } else if (obj.type === 'image') {
+        await renderImage(ctx, obj);
+      }
+      
+      ctx.restore();
+    }
+    
+    // Convert canvas to PNG buffer
+    const pngBuffer = canvas.toBuffer('image/png');
+    
+    // Upload to Supabase storage
+    const fileName = `${renderId}.png`;
+    const { data, error } = await supabase.storage
+      .from('api-renders')
+      .upload(fileName, pngBuffer, {
+        contentType: 'image/png',
+        upsert: true
+      });
+    
+    if (error) {
+      console.error('Storage upload error:', error);
+      throw new Error('Failed to upload image');
+    }
+    
+    // Return public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from('api-renders')
+      .getPublicUrl(fileName);
+    
+    return publicUrl;
+    
+  } catch (error) {
+    console.error('Error generating image:', error);
+    throw error;
+  }
+}
+
+function renderText(ctx: CanvasRenderingContext2D, obj: any) {
+  const text = obj.text || obj.value || obj.content || 'Text';
+  const fontSize = obj.fontSize || 24;
+  const fontFamily = obj.fontFamily || 'Arial';
+  const fontWeight = obj.fontWeight || 'normal';
+  const fontStyle = obj.fontStyle || 'normal';
+  const textAlign = obj.textAlign || 'left';
+  const fill = obj.fill || '#000000';
+  
+  // Set font
+  ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
+  ctx.fillStyle = fill;
+  ctx.textAlign = textAlign as CanvasTextAlign;
+  ctx.textBaseline = 'top';
+  
+  // Handle underline
+  if (obj.underline) {
+    const metrics = ctx.measureText(text);
+    ctx.beginPath();
+    ctx.moveTo(0, fontSize + 2);
+    ctx.lineTo(metrics.width, fontSize + 2);
+    ctx.strokeStyle = fill;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  
+  ctx.fillText(text, 0, 0);
+}
+
+function renderRectangle(ctx: CanvasRenderingContext2D, obj: any) {
+  const width = obj.width || 100;
+  const height = obj.height || 100;
+  const fill = obj.fill || '#000000';
+  const stroke = obj.stroke;
+  const strokeWidth = obj.strokeWidth || 0;
+  
+  if (fill) {
+    ctx.fillStyle = fill;
+    ctx.fillRect(0, 0, width, height);
+  }
+  
+  if (stroke && strokeWidth > 0) {
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = strokeWidth;
+    ctx.strokeRect(0, 0, width, height);
+  }
+}
+
+function renderCircle(ctx: CanvasRenderingContext2D, obj: any) {
+  const radius = obj.radius || 50;
+  const fill = obj.fill || '#000000';
+  const stroke = obj.stroke;
+  const strokeWidth = obj.strokeWidth || 0;
+  
+  ctx.beginPath();
+  ctx.arc(radius, radius, radius, 0, 2 * Math.PI);
+  
+  if (fill) {
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+  
+  if (stroke && strokeWidth > 0) {
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = strokeWidth;
+    ctx.stroke();
+  }
+}
+
+function renderLine(ctx: CanvasRenderingContext2D, obj: any) {
+  const x1 = obj.x1 || 0;
+  const y1 = obj.y1 || 0;
+  const x2 = obj.x2 || 100;
+  const y2 = obj.y2 || 0;
+  const stroke = obj.stroke || '#000000';
+  const strokeWidth = obj.strokeWidth || 2;
+  
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = strokeWidth;
+  ctx.stroke();
+}
+
+async function renderImage(ctx: CanvasRenderingContext2D, obj: any) {
+  if (obj.src) {
+    try {
+      const image = await loadImage(obj.src);
+      const width = obj.width || image.width;
+      const height = obj.height || image.height;
+      ctx.drawImage(image, 0, 0, width, height);
+    } catch (error) {
+      console.error('Error loading image:', error);
+    }
+  }
+}
