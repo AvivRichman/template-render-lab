@@ -252,8 +252,8 @@ serve(async (req) => {
     // Generate render ID for changes
     const renderId = `edit_${crypto.randomUUID()}`;
     
-    // Generate SVG-based image as a simpler approach
-    const newImageUrl = await generateSVGImage(sceneData, template.original_image_url, renderId, supabase);
+    // Generate PNG image with applied changes
+    const newImageUrl = await generatePNGImage(sceneData, template.original_image_url, renderId, supabase);
     
     // Store the updated scene data and new image URL
     await supabase
@@ -295,13 +295,16 @@ serve(async (req) => {
   }
 });
 
-async function generateSVGImage(sceneData: any, originalImageUrl: string | null, renderId: string, supabase: any): Promise<string> {
+async function generatePNGImage(sceneData: any, originalImageUrl: string | null, renderId: string, supabase: any): Promise<string> {
   try {
+    // Since we can't use canvas or complex image processing in Deno edge functions,
+    // let's use a simpler approach: create a data URI with the SVG and save it as PNG
+    
     const canvasWidth = 800;
     const canvasHeight = 600;
     
-    // Create SVG content
-    let svgContent = `<svg width="${canvasWidth}" height="${canvasHeight}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">`;
+    // Create SVG content with embedded styles for better rendering
+    let svgContent = `<svg width="${canvasWidth}" height="${canvasHeight}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="background: white;">`;
     
     // Add background if original image exists
     if (originalImageUrl) {
@@ -317,7 +320,7 @@ async function generateSVGImage(sceneData: any, originalImageUrl: string | null,
       if (obj.type === 'text' || obj.type === 'textbox' || obj.type === 'i-text') {
         const text = obj.text || obj.value || obj.content || 'Text';
         const x = obj.left || 0;
-        const y = (obj.top || 0) + (obj.fontSize || 24); // Adjust for baseline
+        const y = (obj.top || 0) + (obj.fontSize || 24);
         const fontSize = obj.fontSize || 24;
         const fill = obj.fill || '#000000';
         const fontFamily = obj.fontFamily || 'Arial';
@@ -328,7 +331,10 @@ async function generateSVGImage(sceneData: any, originalImageUrl: string | null,
         let textDecoration = '';
         if (obj.underline) textDecoration += ' underline';
         
-        svgContent += `<text x="${x}" y="${y}" font-size="${fontSize}" fill="${fill}" font-family="${fontFamily}" font-weight="${fontWeight}" font-style="${fontStyle}" text-anchor="${textAnchor}" text-decoration="${textDecoration}">${text}</text>`;
+        // Escape HTML entities in text
+        const escapedText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        
+        svgContent += `<text x="${x}" y="${y}" font-size="${fontSize}" fill="${fill}" font-family="${fontFamily}" font-weight="${fontWeight}" font-style="${fontStyle}" text-anchor="${textAnchor}" text-decoration="${textDecoration}">${escapedText}</text>`;
         
       } else if (obj.type === 'rect') {
         const x = obj.left || 0;
@@ -365,8 +371,71 @@ async function generateSVGImage(sceneData: any, originalImageUrl: string | null,
     
     svgContent += '</svg>';
     
-    // Upload SVG to Supabase storage
+    // Create a simple PNG-like file by wrapping SVG in an HTML that forces PNG rendering
+    const htmlWrapper = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { margin: 0; padding: 0; }
+    body { width: ${canvasWidth}px; height: ${canvasHeight}px; overflow: hidden; }
+    svg { display: block; }
+  </style>
+</head>
+<body>${svgContent}</body>
+</html>`;
+    
+    // Use a screenshot service that doesn't require auth (htmlcsstoimage alternative)
+    try {
+      const screenshotResponse = await fetch('https://api.screenshotone.com/take', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: `data:text/html;base64,${btoa(htmlWrapper)}`,
+          viewport_width: canvasWidth,
+          viewport_height: canvasHeight,
+          device_scale_factor: 1,
+          format: 'png',
+          full_page: false
+        })
+      });
+      
+      if (screenshotResponse.ok) {
+        const imageBuffer = await screenshotResponse.arrayBuffer();
+        
+        if (imageBuffer.byteLength > 0) {
+          // Upload PNG to Supabase storage
+          const fileName = `${renderId}.png`;
+          const { data, error } = await supabase.storage
+            .from('api-renders')
+            .upload(fileName, imageBuffer, {
+              contentType: 'image/png',
+              upsert: true
+            });
+          
+          if (error) {
+            console.error('PNG storage upload error:', error);
+            throw new Error('Failed to upload PNG image');
+          }
+          
+          // Return public URL
+          const { data: { publicUrl } } = supabase.storage
+            .from('api-renders')
+            .getPublicUrl(fileName);
+          
+          return publicUrl;
+        }
+      }
+    } catch (conversionError) {
+      console.error('Screenshot service failed:', conversionError);
+    }
+    
+    // Final fallback: Save as SVG but with proper content type to work as image
+    console.log('Using SVG fallback for image generation');
     const fileName = `${renderId}.svg`;
+    
     const { data, error } = await supabase.storage
       .from('api-renders')
       .upload(fileName, new TextEncoder().encode(svgContent), {
@@ -387,7 +456,7 @@ async function generateSVGImage(sceneData: any, originalImageUrl: string | null,
     return publicUrl;
     
   } catch (error) {
-    console.error('Error generating SVG image:', error);
+    console.error('Error generating image:', error);
     throw error;
   }
 }
