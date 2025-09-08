@@ -290,23 +290,44 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
         multiplier: 1
       });
 
-      // Upload both images to storage
-      const [thumbnailUrl, editedImageUrl] = await Promise.all([
+      // Prepare upload promises
+      const uploadPromises = [
         uploadImageToStorage(thumbnailDataURL, `${templateName}-thumbnail.png`),
         uploadImageToStorage(editedImageDataURL, `${templateName}-edited.png`)
-      ]);
+      ];
+
+      // If original image is a data URL (from file upload), upload it too
+      let originalImageStorageUrl = originalImageUrl;
+      if (originalImageUrl && originalImageUrl.startsWith('data:')) {
+        uploadPromises.push(uploadImageToStorage(originalImageUrl, `${templateName}-original.png`));
+      }
+
+      // Upload all images
+      const uploadResults = await Promise.all(uploadPromises);
+      const [thumbnailUrl, editedImageUrl] = uploadResults;
+      
+      // If we uploaded the original image, use the storage URL
+      if (originalImageUrl && originalImageUrl.startsWith('data:')) {
+        originalImageStorageUrl = uploadResults[2];
+      }
 
       if (!thumbnailUrl || !editedImageUrl) {
         toast.error("Failed to upload images");
         return;
       }
 
-      // Save template with both image URLs
+      // If original image upload failed when it was a data URL, show error
+      if (originalImageUrl && originalImageUrl.startsWith('data:') && !originalImageStorageUrl) {
+        toast.error("Failed to upload original image");
+        return;
+      }
+
+      // Save template with all image URLs
       const savedTemplate = await saveTemplate(
         templateName, 
         sceneData, 
         thumbnailUrl,
-        originalImageUrl,
+        originalImageStorageUrl,
         editedImageUrl
       );
       
