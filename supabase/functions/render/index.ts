@@ -252,8 +252,8 @@ serve(async (req) => {
     // Generate render ID for changes
     const renderId = `edit_${crypto.randomUUID()}`;
     
-    // Generate SVG-based image as a simpler approach
-    const newImageUrl = await generateSVGImage(sceneData, template.original_image_url, renderId, supabase);
+    // Generate PNG image with all elements (like Editor page)
+    const newImageUrl = await generatePNGImage(sceneData, template.original_image_url, renderId, supabase);
     
     // Store the updated scene data and new image URL
     await supabase
@@ -295,82 +295,232 @@ serve(async (req) => {
   }
 });
 
-async function generateSVGImage(sceneData: any, originalImageUrl: string | null, renderId: string, supabase: any): Promise<string> {
+async function generatePNGImage(sceneData: any, originalImageUrl: string | null, renderId: string, supabase: any): Promise<string> {
   try {
     const canvasWidth = 800;
     const canvasHeight = 600;
     
-    // Create SVG content
-    let svgContent = `<svg width="${canvasWidth}" height="${canvasHeight}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">`;
+    // Create HTML with canvas and fabric objects (similar to Editor page)
+    let htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { margin: 0; padding: 0; }
+          canvas { border: none; }
+        </style>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/6.7.1/fabric.min.js"></script>
+      </head>
+      <body>
+        <canvas id="canvas" width="${canvasWidth}" height="${canvasHeight}"></canvas>
+        <script>
+          const canvas = new fabric.Canvas('canvas', {
+            width: ${canvasWidth},
+            height: ${canvasHeight},
+            backgroundColor: 'white'
+          });
+          
+          // Load scene data
+          const sceneData = ${JSON.stringify(sceneData)};
+          
+          // Load background image if exists
+          ${originalImageUrl ? `
+          fabric.Image.fromURL('${originalImageUrl}', function(img) {
+            img.set({
+              left: 0,
+              top: 0,
+              scaleX: ${canvasWidth} / img.width,
+              scaleY: ${canvasHeight} / img.height,
+              selectable: false,
+              evented: false
+            });
+            canvas.add(img);
+            canvas.sendToBack(img);
+            
+            // Load all other objects
+            canvas.loadFromJSON(sceneData, function() {
+              canvas.renderAll();
+              // Convert to PNG data URL
+              const dataURL = canvas.toDataURL({
+                format: 'png',
+                quality: 1,
+                multiplier: 1
+              });
+              window.imageData = dataURL;
+            });
+          });
+          ` : `
+          // Load all objects without background
+          canvas.loadFromJSON(sceneData, function() {
+            canvas.renderAll();
+            const dataURL = canvas.toDataURL({
+              format: 'png',
+              quality: 1,
+              multiplier: 1
+            });
+            window.imageData = dataURL;
+          });
+          `}
+        </script>
+      </body>
+      </html>
+    `;
+
+    // Try multiple screenshot services to convert HTML to PNG
+    const screenshotServices = [
+      'https://api.screenshotone.com/take',
+      'https://api.urlbox.io/v1/render/sync',
+      'https://htmlcsstoimage.com/demo_run'
+    ];
+
+    let pngBuffer = null;
     
-    // Add background if original image exists
-    if (originalImageUrl) {
-      svgContent += `<image href="${originalImageUrl}" width="${canvasWidth}" height="${canvasHeight}" preserveAspectRatio="xMidYMid slice"/>`;
-    } else {
-      svgContent += `<rect width="${canvasWidth}" height="${canvasHeight}" fill="white"/>`;
-    }
-    
-    // Render all objects from scene data
-    const objects = sceneData.objects || [];
-    
-    for (const obj of objects) {
-      if (obj.type === 'text' || obj.type === 'textbox' || obj.type === 'i-text') {
-        const text = obj.text || obj.value || obj.content || 'Text';
-        const x = obj.left || 0;
-        const y = (obj.top || 0) + (obj.fontSize || 24); // Adjust for baseline
-        const fontSize = obj.fontSize || 24;
-        const fill = obj.fill || '#000000';
-        const fontFamily = obj.fontFamily || 'Arial';
-        const fontWeight = obj.fontWeight || 'normal';
-        const fontStyle = obj.fontStyle || 'normal';
-        const textAnchor = obj.textAlign === 'center' ? 'middle' : obj.textAlign === 'right' ? 'end' : 'start';
+    for (const service of screenshotServices) {
+      try {
+        console.log(`Trying PNG conversion service: ${service}`);
         
-        let textDecoration = '';
-        if (obj.underline) textDecoration += ' underline';
-        
-        svgContent += `<text x="${x}" y="${y}" font-size="${fontSize}" fill="${fill}" font-family="${fontFamily}" font-weight="${fontWeight}" font-style="${fontStyle}" text-anchor="${textAnchor}" text-decoration="${textDecoration}">${text}</text>`;
-        
-      } else if (obj.type === 'rect') {
-        const x = obj.left || 0;
-        const y = obj.top || 0;
-        const width = obj.width || 100;
-        const height = obj.height || 100;
-        const fill = obj.fill || '#000000';
-        const stroke = obj.stroke || 'none';
-        const strokeWidth = obj.strokeWidth || 0;
-        
-        svgContent += `<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
-        
-      } else if (obj.type === 'circle') {
-        const cx = (obj.left || 0) + (obj.radius || 50);
-        const cy = (obj.top || 0) + (obj.radius || 50);
-        const r = obj.radius || 50;
-        const fill = obj.fill || '#000000';
-        const stroke = obj.stroke || 'none';
-        const strokeWidth = obj.strokeWidth || 0;
-        
-        svgContent += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
-        
-      } else if (obj.type === 'line') {
-        const x1 = obj.x1 || 0;
-        const y1 = obj.y1 || 0;
-        const x2 = obj.x2 || 100;
-        const y2 = obj.y2 || 0;
-        const stroke = obj.stroke || '#000000';
-        const strokeWidth = obj.strokeWidth || 2;
-        
-        svgContent += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
+        let response;
+        if (service.includes('screenshotone.com')) {
+          response = await fetch(service, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              url: `data:text/html;base64,${btoa(htmlContent)}`,
+              viewport_width: canvasWidth,
+              viewport_height: canvasHeight,
+              device_scale_factor: 1,
+              format: 'png',
+              full_page: false,
+              delay: 2
+            })
+          });
+        } else if (service.includes('urlbox.io')) {
+          response = await fetch(service, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              html: htmlContent,
+              width: canvasWidth,
+              height: canvasHeight,
+              format: 'png',
+              delay: 2000
+            })
+          });
+        } else if (service.includes('htmlcsstoimage.com')) {
+          response = await fetch(service, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              html: htmlContent,
+              css: '',
+              viewport_width: canvasWidth,
+              viewport_height: canvasHeight,
+              device_scale_factor: 1
+            })
+          });
+        }
+
+        if (response && response.ok) {
+          const buffer = await response.arrayBuffer();
+          if (buffer.byteLength > 0) {
+            pngBuffer = new Uint8Array(buffer);
+            console.log(`Successfully generated PNG using ${service}`);
+            break;
+          }
+        }
+        console.log(`Service ${service} failed or returned empty response`);
+      } catch (error) {
+        console.log(`Service ${service} error:`, error.message);
       }
     }
-    
-    svgContent += '</svg>';
-    
-    // Upload SVG to Supabase storage
-    const fileName = `${renderId}.svg`;
+
+    // If all external services fail, create a simple canvas-based fallback
+    if (!pngBuffer) {
+      console.log('All external services failed, creating fallback PNG');
+      
+      // Create a simple PNG using manual canvas rendering (server-side simulation)
+      const canvas = new OffscreenCanvas(canvasWidth, canvasHeight);
+      const ctx = canvas.getContext('2d');
+      
+      // Fill background
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+      
+      // Draw background image if available
+      if (originalImageUrl) {
+        try {
+          const imageResponse = await fetch(originalImageUrl);
+          const imageBuffer = await imageResponse.arrayBuffer();
+          const imageBlob = new Blob([imageBuffer]);
+          const bitmap = await createImageBitmap(imageBlob);
+          ctx.drawImage(bitmap, 0, 0, canvasWidth, canvasHeight);
+        } catch (error) {
+          console.log('Failed to load background image:', error.message);
+        }
+      }
+      
+      // Draw fabric objects
+      const objects = sceneData.objects || [];
+      for (const obj of objects) {
+        if (obj.type === 'text' || obj.type === 'textbox' || obj.type === 'i-text') {
+          const text = obj.text || obj.value || obj.content || 'Text';
+          const x = obj.left || 0;
+          const y = (obj.top || 0) + (obj.fontSize || 24);
+          
+          ctx.font = `${obj.fontWeight || 'normal'} ${obj.fontStyle || 'normal'} ${obj.fontSize || 24}px ${obj.fontFamily || 'Arial'}`;
+          ctx.fillStyle = obj.fill || '#000000';
+          ctx.textAlign = obj.textAlign || 'left';
+          
+          if (obj.underline) {
+            ctx.fillText(obj.text, x, y);
+            const textWidth = ctx.measureText(text).width;
+            ctx.strokeStyle = obj.fill || '#000000';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x, y + 2);
+            ctx.lineTo(x + textWidth, y + 2);
+            ctx.stroke();
+          } else {
+            ctx.fillText(text, x, y);
+          }
+        } else if (obj.type === 'rect') {
+          ctx.fillStyle = obj.fill || '#000000';
+          ctx.fillRect(obj.left || 0, obj.top || 0, obj.width || 100, obj.height || 100);
+          
+          if (obj.stroke && obj.strokeWidth > 0) {
+            ctx.strokeStyle = obj.stroke;
+            ctx.lineWidth = obj.strokeWidth;
+            ctx.strokeRect(obj.left || 0, obj.top || 0, obj.width || 100, obj.height || 100);
+          }
+        } else if (obj.type === 'circle') {
+          const centerX = (obj.left || 0) + (obj.radius || 50);
+          const centerY = (obj.top || 0) + (obj.radius || 50);
+          const radius = obj.radius || 50;
+          
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+          ctx.fillStyle = obj.fill || '#000000';
+          ctx.fill();
+          
+          if (obj.stroke && obj.strokeWidth > 0) {
+            ctx.strokeStyle = obj.stroke;
+            ctx.lineWidth = obj.strokeWidth;
+            ctx.stroke();
+          }
+        }
+      }
+      
+      // Convert canvas to PNG
+      const blob = await canvas.convertToBlob({ type: 'image/png' });
+      pngBuffer = new Uint8Array(await blob.arrayBuffer());
+    }
+
+    // Upload PNG to Supabase storage
+    const fileName = `${renderId}.png`;
     const { data, error } = await supabase.storage
       .from('api-renders')
-      .upload(fileName, new TextEncoder().encode(svgContent), {
-        contentType: 'image/svg+xml',
+      .upload(fileName, pngBuffer, {
+        contentType: 'image/png',
         upsert: true
       });
     
@@ -387,7 +537,7 @@ async function generateSVGImage(sceneData: any, originalImageUrl: string | null,
     return publicUrl;
     
   } catch (error) {
-    console.error('Error generating SVG image:', error);
+    console.error('Error generating PNG image:', error);
     throw error;
   }
 }
