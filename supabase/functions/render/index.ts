@@ -31,21 +31,50 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Simulate image generation process
-    // In a real implementation, this would:
-    // 1. Load the scene_data into a server-side canvas/fabric instance
-    // 2. Render the canvas to PNG
-    // 3. Upload the generated image to storage
-    // 4. Return the public URL
-
-    console.log('Simulating image generation...');
+    console.log('Generating image...');
     
-    // For demo purposes, create a mock image URL
+    // Create a simple 1x1 pixel PNG file (mock generation)
+    // In a real implementation, this would render the actual Fabric.js scene
     const timestamp = Date.now();
-    const mockImagePath = `${user_id}/generated-${template_id}-${timestamp}.png`;
+    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.png`;
     
-    // In a real implementation, you would upload the actual rendered image here
-    const mockImageUrl = `https://nracebwmywbyuywhucwo.supabase.co/storage/v1/object/public/api-renders/${mockImagePath}`;
+    // Create a valid minimal PNG that browsers can display (1x1 red pixel)
+    const mockPngContent = new Uint8Array([
+      0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
+      0x00, 0x00, 0x00, 0x0D, // IHDR chunk length (13 bytes)
+      0x49, 0x48, 0x44, 0x52, // IHDR
+      0x00, 0x00, 0x00, 0x01, // Width: 1
+      0x00, 0x00, 0x00, 0x01, // Height: 1
+      0x08, 0x02, 0x00, 0x00, 0x00, // Bit depth: 8, Color type: 2 (RGB), Compression: 0, Filter: 0, Interlace: 0
+      0x90, 0x77, 0x53, 0xDE, // CRC
+      0x00, 0x00, 0x00, 0x0C, // IDAT chunk length (12 bytes)
+      0x49, 0x44, 0x41, 0x54, // IDAT
+      0x08, 0x99, 0x01, 0x01, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x02, // Compressed RGB data (red pixel)
+      0x7E, 0x81, 0x5A, 0x5D, // CRC
+      0x00, 0x00, 0x00, 0x00, // IEND chunk length
+      0x49, 0x45, 0x4E, 0x44, // IEND
+      0xAE, 0x42, 0x60, 0x82  // CRC
+    ]);
+    
+    // Upload to storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('api-renders')
+      .upload(imagePath, mockPngContent, {
+        contentType: 'image/png',
+        upsert: true
+      });
+    
+    if (uploadError) {
+      console.error('Upload error:', uploadError);
+      throw new Error(`Failed to upload image: ${uploadError.message}`);
+    }
+    
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from('api-renders')
+      .getPublicUrl(imagePath);
+    
+    const mockImageUrl = urlData.publicUrl;
 
     console.log('Mock image URL generated:', mockImageUrl);
 
