@@ -66,17 +66,37 @@ export const APIDocs = () => {
   const getTemplateElements = (template: any) => {
     if (!template?.scene_data?.objects) return [];
     
-    // Get all text objects first
-    const textObjects = template.scene_data.objects.filter((obj: any) => obj.type === 'text');
+    console.log('Template scene_data objects:', template.scene_data.objects);
+    
+    // Filter text objects - check multiple possible conditions
+    const textObjects = template.scene_data.objects.filter((obj: any) => {
+      // Check if it's a text object by type or if it has text content
+      return obj.type === 'text' || 
+             obj.type === 'textbox' || 
+             obj.type === 'i-text' ||
+             obj.text !== undefined ||
+             obj.value !== undefined ||
+             (obj.type === undefined && (obj.text || obj.value));
+    });
+    
+    console.log('Filtered text objects:', textObjects);
     
     // Assign sequential names if not already present
     return textObjects.map((obj: any, index: number) => {
       const assignedName = obj.name || `text${index + 1}`;
+      const currentValue = obj.text || obj.value || obj.content || '';
+      
+      console.log(`Text element ${index + 1}:`, {
+        name: assignedName,
+        currentValue: currentValue,
+        originalObj: obj
+      });
+      
       return {
         id: obj.id || `text_${index}`,
         name: assignedName,
         type: 'text',
-        currentValue: obj.text || obj.value || ''
+        currentValue: currentValue
       };
     });
   };

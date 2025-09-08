@@ -160,8 +160,17 @@ serve(async (req) => {
     if (Object.keys(textParams).length > 0) {
       const objects = sceneData.objects || [];
       
-      // Get only text objects and assign sequential names
-      const textObjects = objects.filter(obj => obj.type === 'text');
+      // Get all text-like objects (check multiple conditions)
+      const textObjects = objects.filter(obj => 
+        obj.type === 'text' || 
+        obj.type === 'textbox' || 
+        obj.type === 'i-text' ||
+        obj.text !== undefined ||
+        obj.value !== undefined ||
+        (obj.type === undefined && (obj.text || obj.value))
+      );
+      
+      console.log('Found text objects for modification:', textObjects.length);
       
       // Assign sequential names to all text objects (text1, text2, text3, etc.)
       textObjects.forEach((obj, index) => {
@@ -171,7 +180,11 @@ serve(async (req) => {
       // Apply text parameter changes
       for (const obj of textObjects) {
         if (textParams[obj.name]) {
-          obj.text = textParams[obj.name];
+          // Update text content (handle multiple possible properties)
+          if (obj.text !== undefined) obj.text = textParams[obj.name];
+          if (obj.value !== undefined) obj.value = textParams[obj.name];
+          if (obj.content !== undefined) obj.content = textParams[obj.name];
+          
           console.log(`Updated ${obj.name} with value: ${textParams[obj.name]}`);
         }
       }
