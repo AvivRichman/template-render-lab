@@ -131,8 +131,6 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
       fontStyle: isItalic ? 'italic' : 'normal',
       underline: isUnderline,
       textAlign: textAlign,
-      id: `text_${Date.now()}`,
-      name: `text${fabricCanvas.getObjects().filter(obj => obj.type === 'text').length + 1}`
     });
     
     fabricCanvas.add(text);
@@ -156,8 +154,6 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
           fill: textColor,
           stroke: "#000000",
           strokeWidth: 2,
-          id: `rect_${Date.now()}`,
-          name: 'rectangle'
         });
         break;
       case "circle":
@@ -168,16 +164,12 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
           fill: textColor,
           stroke: "#000000",
           strokeWidth: 2,
-          id: `circle_${Date.now()}`,
-          name: 'circle'
         });
         break;
       case "line":
         shape = new Line([50, 50, 200, 50], {
           stroke: textColor,
           strokeWidth: 2,
-          id: `line_${Date.now()}`,
-          name: 'line'
         });
         break;
     }
@@ -239,13 +231,13 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
     }
 
     const sceneData = fabricCanvas.toJSON();
-    const editedImageDataUrl = fabricCanvas.toDataURL({
+    const thumbnailUrl = fabricCanvas.toDataURL({
       format: 'png',
-      quality: 1,
-      multiplier: 1
+      quality: 0.8,
+      multiplier: 0.3
     });
 
-    const savedTemplate = await saveTemplate(templateName, sceneData, editedImageDataUrl, uploadedImage);
+    const savedTemplate = await saveTemplate(templateName, sceneData, thumbnailUrl);
     
     if (savedTemplate) {
       setTemplateName("");
