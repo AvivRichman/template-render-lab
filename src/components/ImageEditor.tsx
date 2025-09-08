@@ -132,7 +132,7 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
       underline: isUnderline,
       textAlign: textAlign,
       id: `text_${Date.now()}`,
-      name: `text${fabricCanvas.getObjects().filter(obj => obj.type === 'text').length + 1}`
+      name: textContent.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 20) || 'text'
     });
     
     fabricCanvas.add(text);
