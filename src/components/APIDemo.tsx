@@ -26,11 +26,14 @@ import { supabase } from "@/integrations/supabase/client";
 interface Template {
   id: string;
   name: string;
+  created_at: string;
+  updated_at: string;
   elements: Array<{
     id: string;
     type: string;
     content?: string;
     editable_key: string;
+    shape_type?: string;
     properties: any;
   }>;
   thumbnail_url?: string;
@@ -430,11 +433,11 @@ print(result["image_url"])`;
         </TabsContent>
 
         <TabsContent value="templates" className="space-y-6">
-          {/* User Templates */}
+          {/* All Templates Elements Overview */}
           <Card className="p-6">
             <h3 className="font-semibold mb-4 flex items-center gap-2">
               <Database className="h-4 w-4" />
-              Your Templates ({templates.length})
+              All Template Elements ({templates.reduce((total, t) => total + t.elements.length, 0)} total)
             </h3>
             
             {templates.length === 0 ? (
@@ -446,37 +449,76 @@ print(result["image_url"])`;
               <div className="space-y-4">
                 {templates.map((template) => (
                   <div key={template.id} className="border border-[hsl(var(--editor-border))] rounded-lg p-4">
-                    <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-start justify-between mb-4">
                       <div>
-                        <h4 className="font-medium">{template.name}</h4>
-                        <code className="text-xs text-muted-foreground">ID: {template.id}</code>
+                        <h4 className="font-medium text-lg">{template.name}</h4>
+                        <code className="text-xs text-muted-foreground">Template ID: {template.id}</code>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Elements: {template.elements.length} | 
+                          Created: {new Date(template.created_at).toLocaleDateString()}
+                        </p>
                       </div>
                       {template.thumbnail_url && (
-                        <img src={template.thumbnail_url} alt={template.name} className="w-16 h-16 object-cover rounded" />
+                        <img src={template.thumbnail_url} alt={template.name} className="w-20 h-20 object-cover rounded border" />
                       )}
                     </div>
                     
-                    <div className="space-y-2">
-                      <Label className="text-xs font-medium">Editable Elements:</Label>
+                    <div className="space-y-3">
+                      <Label className="text-sm font-medium">All Elements in this Template:</Label>
                       {template.elements.length === 0 ? (
-                        <p className="text-xs text-muted-foreground">No editable elements found</p>
+                        <div className="bg-[hsl(var(--editor-background))] p-4 rounded-lg text-center">
+                          <p className="text-sm text-muted-foreground">No elements found in this template</p>
+                        </div>
                       ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {template.elements.map((element) => (
-                            <div key={element.id} className="bg-[hsl(var(--editor-background))] p-2 rounded text-xs">
-                              <div className="flex items-center justify-between mb-1">
-                                <Badge variant="outline" className="text-xs h-4">
-                                  {element.type}
-                                </Badge>
-                                <code className="text-muted-foreground">{element.editable_key}</code>
+                        <div className="space-y-2">
+                          {template.elements.map((element, index) => (
+                            <div key={element.id} className="bg-[hsl(var(--editor-background))] p-3 rounded-lg border-l-4 border-l-primary">
+                              <div className="flex items-start justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <Badge variant={element.type === 'text' ? 'default' : 'secondary'} className="text-xs">
+                                    {element.type === 'text' ? 'Text' : element.shape_type ? `Shape: ${element.shape_type}` : 'Shape'}
+                                  </Badge>
+                                  <span className="text-xs font-mono text-muted-foreground">#{index + 1}</span>
+                                </div>
+                                <code className="text-xs bg-muted px-2 py-1 rounded">{element.editable_key}</code>
                               </div>
+                              
                               {element.content && (
-                                <p className="text-muted-foreground truncate">"{element.content}"</p>
+                                <div className="mb-2">
+                                  <Label className="text-xs text-muted-foreground">Content:</Label>
+                                  <p className="text-sm font-medium mt-1">"{element.content}"</p>
+                                </div>
+                              )}
+                              
+                              {element.properties && (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-xs">
+                                  {Object.entries(element.properties).map(([key, value]) => (
+                                    value !== undefined && value !== null && (
+                                      <div key={key} className="bg-background/50 p-2 rounded">
+                                        <span className="text-muted-foreground">{key}:</span>
+                                        <span className="ml-1 font-mono">{String(value)}</span>
+                                      </div>
+                                    )
+                                  ))}
+                                </div>
                               )}
                             </div>
                           ))}
                         </div>
                       )}
+                    </div>
+                    
+                    {/* Quick API Usage Example */}
+                    <div className="mt-4 p-3 bg-[hsl(var(--editor-background))] rounded-lg">
+                      <Label className="text-xs font-medium">API Usage Example:</Label>
+                      <pre className="text-xs mt-1 text-muted-foreground overflow-x-auto">
+{`{
+  "template_id": "${template.id}",
+  "overrides": {${template.elements.slice(0, 2).map(el => `
+    "${el.editable_key}": "${el.type === 'text' ? 'New text content' : '#ff0000'}"`).join(',')}
+  }
+}`}
+                      </pre>
                     </div>
                   </div>
                 ))}
