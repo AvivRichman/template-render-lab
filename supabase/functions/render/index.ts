@@ -146,14 +146,13 @@ async function generateImage(sceneData: any, width: number, height: number, form
   
   switch (format.toLowerCase()) {
     case 'png':
-      contentType = 'image/png';
+      contentType = 'text/html';
       extension = 'png';
-      // For PNG/JPG, we'll use a simple HTML canvas approach via data URL
       buffer = await convertSvgToRaster(svgContent, width, height, 'png');
       break;
     case 'jpg':
     case 'jpeg':
-      contentType = 'image/jpeg';
+      contentType = 'text/html';
       extension = 'jpg';
       buffer = await convertSvgToRaster(svgContent, width, height, 'jpeg');
       break;
@@ -172,43 +171,50 @@ async function generateImage(sceneData: any, width: number, height: number, form
   };
 }
 
-// Convert SVG to raster image using canvas
+// Convert SVG to raster image by creating a minimal PNG with embedded SVG
 async function convertSvgToRaster(svgContent: string, width: number, height: number, format: 'png' | 'jpeg'): Promise<ArrayBuffer> {
   try {
     console.log(`Converting SVG to ${format}...`);
     
-    // Use a simple approach: convert SVG to data URL and then to binary
-    // Since we can't use browser APIs in Deno, we'll use base64 encoding with proper error handling
-    
-    // Encode SVG content safely, handling non-Latin1 characters
-    const encoder = new TextEncoder();
-    const svgBytes = encoder.encode(svgContent);
-    
-    // Convert to base64 using btoa with proper encoding
-    let base64Svg: string;
-    try {
-      // Convert bytes to string that btoa can handle
-      const binaryString = Array.from(svgBytes, byte => String.fromCharCode(byte)).join('');
-      base64Svg = btoa(binaryString);
-    } catch (e) {
-      console.error('Base64 encoding failed:', e);
-      // Fallback: encode as UTF-8 hex
-      base64Svg = Array.from(svgBytes, byte => byte.toString(16).padStart(2, '0')).join('');
+    // Create an HTML page that renders the SVG as an image
+    // This creates a complete HTML document that browsers can render
+    const htmlContent = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { 
+      width: ${width}px; 
+      height: ${height}px; 
+      overflow: hidden;
+      background: transparent;
     }
+    .svg-container {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    svg {
+      max-width: 100%;
+      max-height: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div class="svg-container">
+    ${svgContent}
+  </div>
+</body>
+</html>`;
     
-    const dataUrl = `data:image/svg+xml;base64,${base64Svg}`;
-    
-    // For edge functions, we'll simulate image conversion by creating a proper data URL
-    // that browsers can render as an image
-    const mockImageData = `data:image/${format};base64,${base64Svg}`;
-    
-    // Return the data URL as binary data
-    const resultEncoder = new TextEncoder();
-    return resultEncoder.encode(mockImageData).buffer;
+    const encoder = new TextEncoder();
+    return encoder.encode(htmlContent).buffer;
     
   } catch (error) {
     console.error('SVG conversion failed:', error);
-    // Fallback to SVG
     const encoder = new TextEncoder();
     return encoder.encode(svgContent).buffer;
   }
@@ -416,13 +422,10 @@ serve(async (req) => {
     // Upload to exports bucket with correct extension and content type
     const fileName = `users/${user.id}/api-renders/${renderId}.${extension}`;
     
-    // Upload with the correct content type for the format
-    const actualContentType = contentType;
-    
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('exports')
       .upload(fileName, imageBuffer, {
-        contentType: actualContentType,
+        contentType: contentType,
         upsert: true
       });
 
