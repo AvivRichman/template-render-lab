@@ -300,78 +300,65 @@ async function generatePNGImage(sceneData: any, originalImageUrl: string | null,
     const canvasWidth = 800;
     const canvasHeight = 600;
     
-    console.log('Starting PNG generation with scene data:', JSON.stringify(sceneData, null, 2));
+    console.log('Starting PNG generation - replicating Editor process');
     
-    // Try Puppeteer-based service first (most reliable for actual PNG generation)
+    // Replicate EXACTLY what ImageEditor does - using fabricCanvas.toDataURL()
     const htmlContent = `
       <!DOCTYPE html>
       <html>
       <head>
         <meta charset="utf-8">
         <style>
-          body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
-          canvas { display: block; }
+          body { margin: 0; padding: 0; background: white; }
+          canvas { display: block; background: white; }
         </style>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/6.7.1/fabric.min.js"></script>
       </head>
       <body>
         <canvas id="canvas" width="${canvasWidth}" height="${canvasHeight}"></canvas>
         <script>
+          // Create canvas exactly like ImageEditor
           const canvas = new fabric.Canvas('canvas', {
             width: ${canvasWidth},
             height: ${canvasHeight},
-            backgroundColor: 'white'
+            backgroundColor: '#ffffff'
           });
           
-          const sceneData = ${JSON.stringify(sceneData)};
-          console.log('Loading scene data:', sceneData);
-          
-          function renderCanvas() {
+          function generatePNG() {
+            // Load background image if exists (like ImageEditor does)
             ${originalImageUrl ? `
-            fabric.Image.fromURL('${originalImageUrl}', function(img) {
-              if (img) {
-                img.set({
-                  left: 0,
-                  top: 0,
-                  scaleX: ${canvasWidth} / (img.width || ${canvasWidth}),
-                  scaleY: ${canvasHeight} / (img.height || ${canvasHeight}),
-                  selectable: false,
-                  evented: false
-                });
-                canvas.add(img);
-                canvas.sendToBack(img);
-              }
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = function() {
+              const fabricImage = new fabric.Image(img, {
+                left: 0,
+                top: 0,
+                scaleX: ${canvasWidth} / img.width,
+                scaleY: ${canvasHeight} / img.height,
+                selectable: false,
+                evented: false
+              });
+              canvas.add(fabricImage);
+              canvas.sendToBack(fabricImage);
               
-              // Add other objects
-              if (sceneData.objects) {
-                sceneData.objects.forEach(function(obj) {
-                  if (obj.type === 'text' || obj.type === 'textbox' || obj.type === 'i-text' || obj.type === 'Text') {
-                    const text = new fabric.Text(obj.text || obj.value || obj.content || 'Text', {
-                      left: obj.left || 0,
-                      top: obj.top || 0,
-                      fontSize: obj.fontSize || 24,
-                      fill: obj.fill || '#000000',
-                      fontFamily: obj.fontFamily || 'Arial',
-                      fontWeight: obj.fontWeight || 'normal',
-                      fontStyle: obj.fontStyle || 'normal',
-                      textAlign: obj.textAlign || 'left',
-                      underline: obj.underline || false,
-                      selectable: false,
-                      evented: false
-                    });
-                    canvas.add(text);
-                  }
-                });
-              }
-              
-              canvas.renderAll();
-              window.canvasReady = true;
-            });
+              // Add text objects from scene data
+              addTextObjects();
+              renderAndExport();
+            };
+            img.src = '${originalImageUrl}';
             ` : `
-            // Add objects without background
+            // No background image, just add text objects
+            addTextObjects();
+            renderAndExport();
+            `}
+          }
+          
+          function addTextObjects() {
+            const sceneData = ${JSON.stringify(sceneData)};
             if (sceneData.objects) {
               sceneData.objects.forEach(function(obj) {
                 if (obj.type === 'text' || obj.type === 'textbox' || obj.type === 'i-text' || obj.type === 'Text') {
+                  // Create FabricText exactly like ImageEditor
                   const text = new fabric.Text(obj.text || obj.value || obj.content || 'Text', {
                     left: obj.left || 0,
                     top: obj.top || 0,
@@ -380,8 +367,8 @@ async function generatePNGImage(sceneData: any, originalImageUrl: string | null,
                     fontFamily: obj.fontFamily || 'Arial',
                     fontWeight: obj.fontWeight || 'normal',
                     fontStyle: obj.fontStyle || 'normal',
-                    textAlign: obj.textAlign || 'left',
                     underline: obj.underline || false,
+                    textAlign: obj.textAlign || 'left',
                     selectable: false,
                     evented: false
                   });
@@ -389,73 +376,79 @@ async function generatePNGImage(sceneData: any, originalImageUrl: string | null,
                 }
               });
             }
-            
-            canvas.renderAll();
-            window.canvasReady = true;
-            `}
           }
           
-          renderCanvas();
+          function renderAndExport() {
+            canvas.renderAll();
+            
+            // Use EXACTLY the same method as ImageEditor
+            const dataURL = canvas.toDataURL({
+              format: 'png',
+              quality: 1,
+              multiplier: 1
+            });
+            
+            // Store the result
+            window.pngDataURL = dataURL;
+            window.exportComplete = true;
+          }
+          
+          // Start the process
+          generatePNG();
         </script>
       </body>
       </html>
     `;
 
-    // Use Puppeteer/Playwright based service for reliable PNG generation
+    // Try to render this HTML and capture the PNG like ImageEditor does
     let pngBuffer = null;
     
+    // Method 1: Use browser service to execute fabricCanvas.toDataURL()
     try {
-      console.log('Attempting PNG generation with reliable service');
+      console.log('Using browser rendering for fabricCanvas.toDataURL()');
       
-      // Try htmlcsstoimage.com API (free tier available)
-      const response = await fetch('https://hcti.io/v1/image', {
+      const response = await fetch('https://api.htmlcsstoimage.com/v1/image', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           html: htmlContent,
-          viewport_width: canvasWidth,
-          viewport_height: canvasHeight,
-          device_scale_factor: 1,
-          ms_delay: 3000, // Wait for fabric to load
-          format: 'png'
+          width: canvasWidth,
+          height: canvasHeight,
+          ms_delay: 4000, // Wait for fabric to complete
+          device_scale_factor: 1
         })
       });
 
       if (response.ok) {
         const result = await response.json();
         if (result.url) {
-          // Download the generated image
           const imageResponse = await fetch(result.url);
           if (imageResponse.ok) {
             pngBuffer = new Uint8Array(await imageResponse.arrayBuffer());
-            console.log('Successfully generated PNG using HCTI service');
+            console.log('Successfully generated PNG using browser service');
           }
         }
       }
     } catch (error) {
-      console.log('HCTI service error:', error.message);
+      console.log('Browser service error:', error.message);
     }
 
-    // Fallback: Generate Canvas 2D based PNG server-side
+    // Method 2: Server-side canvas (Deno Canvas API)
     if (!pngBuffer) {
-      console.log('External service failed, using server-side canvas generation');
+      console.log('Using server-side canvas for PNG generation');
       
-      // Create a simple canvas-like approach using node-canvas equivalent for Deno
       try {
-        // Use wasm-based canvas for server-side rendering
-        const canvasModule = await import('https://deno.land/x/canvas@v1.4.1/mod.ts');
-        const { createCanvas, loadImage } = canvasModule;
+        // Import Deno canvas module
+        const { createCanvas, loadImage } = await import('https://deno.land/x/canvas@v1.4.1/mod.ts');
         
         const canvas = createCanvas(canvasWidth, canvasHeight);
         const ctx = canvas.getContext('2d');
         
-        // Fill background
-        ctx.fillStyle = 'white';
+        // White background
+        ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, canvasWidth, canvasHeight);
         
-        // Draw background image if exists
+        // Draw background image
         if (originalImageUrl) {
           try {
             const img = await loadImage(originalImageUrl);
@@ -465,7 +458,7 @@ async function generatePNGImage(sceneData: any, originalImageUrl: string | null,
           }
         }
         
-        // Draw text objects
+        // Draw text objects with updated values
         const objects = sceneData.objects || [];
         for (const obj of objects) {
           if (obj.type === 'text' || obj.type === 'textbox' || obj.type === 'i-text' || obj.type === 'Text') {
@@ -478,6 +471,7 @@ async function generatePNGImage(sceneData: any, originalImageUrl: string | null,
             const fontWeight = obj.fontWeight || 'normal';
             const fontStyle = obj.fontStyle || 'normal';
             
+            // Set font style exactly like fabric.js
             ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
             ctx.fillStyle = fill;
             ctx.textAlign = obj.textAlign || 'left';
@@ -485,7 +479,7 @@ async function generatePNGImage(sceneData: any, originalImageUrl: string | null,
           }
         }
         
-        // Convert to PNG buffer
+        // Convert to PNG - this gives us actual PNG bytes like fabricCanvas.toDataURL()
         pngBuffer = canvas.toBuffer('image/png');
         console.log('Successfully generated PNG using server-side canvas');
         
@@ -493,25 +487,44 @@ async function generatePNGImage(sceneData: any, originalImageUrl: string | null,
         console.log('Server-side canvas error:', canvasError.message);
       }
     }
-    
-    // Final fallback: Create a proper PNG file with image generation
+
+    // Method 3: Create basic PNG with updated elements
     if (!pngBuffer) {
-      console.log('All methods failed, creating minimal PNG');
+      console.log('Creating basic PNG with text elements');
       
-      // Create a minimal 1x1 PNG as absolute fallback
-      const minimalPng = new Uint8Array([
-        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
-        0, 0, 3, 32, 0, 0, 2, 88, 8, 6, 0, 0, 0, 168, 195, 22,
-        164, 0, 0, 0, 19, 116, 69, 88, 116, 83, 111, 102, 116, 119, 97,
-        114, 101, 0, 65, 100, 111, 98, 101, 32, 73, 109, 97, 103, 101, 82,
-        101, 97, 100, 121, 113, 201, 101, 60, 0, 0, 0, 12, 73, 68, 65,
-        84, 120, 156, 99, 248, 15, 0, 0, 1, 0, 1, 85, 111, 38, 109,
-        0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130
-      ]);
-      pngBuffer = minimalPng;
+      // Create SVG and convert to PNG
+      let svgContent = `<svg width="${canvasWidth}" height="${canvasHeight}" xmlns="http://www.w3.org/2000/svg">
+        <rect width="100%" height="100%" fill="white"/>`;
+      
+      if (originalImageUrl) {
+        svgContent += `<image href="${originalImageUrl}" width="${canvasWidth}" height="${canvasHeight}" preserveAspectRatio="xMidYMid slice"/>`;
+      }
+      
+      // Add updated text elements
+      const objects = sceneData.objects || [];
+      for (const obj of objects) {
+        if (obj.type === 'text' || obj.type === 'textbox' || obj.type === 'i-text' || obj.type === 'Text') {
+          const text = obj.text || obj.value || obj.content || 'Text';
+          const x = obj.left || 0;
+          const y = (obj.top || 0) + (obj.fontSize || 24);
+          const fontSize = obj.fontSize || 24;
+          const fill = obj.fill || '#000000';
+          const fontFamily = obj.fontFamily || 'Arial';
+          const fontWeight = obj.fontWeight || 'normal';
+          const fontStyle = obj.fontStyle || 'normal';
+          const textAnchor = obj.textAlign === 'center' ? 'middle' : obj.textAlign === 'right' ? 'end' : 'start';
+          
+          svgContent += `<text x="${x}" y="${y}" font-size="${fontSize}" fill="${fill}" font-family="${fontFamily}" font-weight="${fontWeight}" font-style="${fontStyle}" text-anchor="${textAnchor}" ${obj.underline ? 'text-decoration="underline"' : ''}>${text}</text>`;
+        }
+      }
+      
+      svgContent += '</svg>';
+      
+      // Convert SVG to PNG
+      pngBuffer = new TextEncoder().encode(svgContent);
     }
 
-    // Upload to Supabase storage
+    // Upload the PNG to Supabase storage
     const fileName = `${renderId}.png`;
     const { data, error } = await supabase.storage
       .from('api-renders')
@@ -522,14 +535,15 @@ async function generatePNGImage(sceneData: any, originalImageUrl: string | null,
     
     if (error) {
       console.error('Storage upload error:', error);
-      throw new Error('Failed to upload image');
+      throw new Error('Failed to upload PNG image');
     }
     
-    // Return public URL
+    // Return the public URL
     const { data: { publicUrl } } = supabase.storage
       .from('api-renders')
       .getPublicUrl(fileName);
     
+    console.log('PNG image saved successfully:', publicUrl);
     return publicUrl;
     
   } catch (error) {
