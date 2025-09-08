@@ -8,6 +8,8 @@ export interface Template {
   name: string;
   scene_data: any;
   thumbnail_url?: string;
+  original_image_url?: string;
+  edited_image_url?: string;
   created_at: string;
   updated_at: string;
   user_id: string;
@@ -37,7 +39,13 @@ export const useTemplates = () => {
     }
   };
 
-  const saveTemplate = async (name: string, sceneData: any, thumbnailUrl?: string) => {
+  const saveTemplate = async (
+    name: string, 
+    sceneData: any, 
+    thumbnailUrl?: string,
+    originalImageUrl?: string,
+    editedImageUrl?: string
+  ) => {
     if (!user) {
       toast.error('You must be logged in to save templates');
       return null;
@@ -50,6 +58,8 @@ export const useTemplates = () => {
           name,
           scene_data: sceneData,
           thumbnail_url: thumbnailUrl,
+          original_image_url: originalImageUrl,
+          edited_image_url: editedImageUrl,
           user_id: user.id
         })
         .select()
@@ -58,7 +68,6 @@ export const useTemplates = () => {
       if (error) throw error;
 
       setTemplates(prev => [data, ...prev]);
-      toast.success('Template saved successfully');
       return data;
     } catch (error) {
       console.error('Error saving template:', error);

@@ -23,6 +23,7 @@ import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
 import { useTemplates } from "@/hooks/useTemplates";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { supabase } from "@/integrations/supabase/client";
 
 interface ImageEditorProps {
   uploadedImage?: string;
@@ -37,6 +38,7 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
   const [activeTool, setActiveTool] = useState<"select" | "text" | "rectangle" | "circle" | "line">("select");
   const [templateName, setTemplateName] = useState("");
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [originalImageUrl, setOriginalImageUrl] = useState<string>("");
   
   const { saveTemplate } = useTemplates();
   
@@ -98,6 +100,7 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
     }
     // Load uploaded image if provided
     else if (uploadedImage) {
+      setOriginalImageUrl(uploadedImage);
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
@@ -224,25 +227,91 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
     toast("Canvas cleared");
   };
 
+  const uploadImageToStorage = async (dataURL: string, filename: string): Promise<string | null> => {
+    try {
+      // Convert data URL to blob
+      const response = await fetch(dataURL);
+      const blob = await response.blob();
+      
+      // Upload to Supabase storage
+      const { data, error } = await supabase.storage
+        .from('exports')
+        .upload(`templates/${Date.now()}-${filename}`, blob, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+
+      if (error) {
+        console.error('Upload error:', error);
+        return null;
+      }
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('exports')
+        .getPublicUrl(data.path);
+
+      return publicUrl;
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      return null;
+    }
+  };
+
   const handleSaveTemplate = async () => {
     if (!fabricCanvas || !templateName.trim()) {
       toast.error("Please enter a template name");
       return;
     }
 
-    const sceneData = fabricCanvas.toJSON();
-    const thumbnailUrl = fabricCanvas.toDataURL({
-      format: 'png',
-      quality: 0.8,
-      multiplier: 0.3
-    });
+    toast("Saving template...");
 
-    const savedTemplate = await saveTemplate(templateName, sceneData, thumbnailUrl);
-    
-    if (savedTemplate) {
-      setTemplateName("");
-      setSaveDialogOpen(false);
-      onTemplateSaved?.();
+    try {
+      const sceneData = fabricCanvas.toJSON();
+      
+      // Generate thumbnail (smaller version)
+      const thumbnailDataURL = fabricCanvas.toDataURL({
+        format: 'png',
+        quality: 0.8,
+        multiplier: 0.3
+      });
+
+      // Generate full edited image
+      const editedImageDataURL = fabricCanvas.toDataURL({
+        format: 'png',
+        quality: 1,
+        multiplier: 1
+      });
+
+      // Upload both images to storage
+      const [thumbnailUrl, editedImageUrl] = await Promise.all([
+        uploadImageToStorage(thumbnailDataURL, `${templateName}-thumbnail.png`),
+        uploadImageToStorage(editedImageDataURL, `${templateName}-edited.png`)
+      ]);
+
+      if (!thumbnailUrl || !editedImageUrl) {
+        toast.error("Failed to upload images");
+        return;
+      }
+
+      // Save template with both image URLs
+      const savedTemplate = await saveTemplate(
+        templateName, 
+        sceneData, 
+        thumbnailUrl,
+        originalImageUrl,
+        editedImageUrl
+      );
+      
+      if (savedTemplate) {
+        setTemplateName("");
+        setSaveDialogOpen(false);
+        onTemplateSaved?.();
+        toast.success("Template saved successfully!");
+      }
+    } catch (error) {
+      console.error('Error saving template:', error);
+      toast.error("Failed to save template");
     }
   };
 
