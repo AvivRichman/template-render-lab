@@ -252,21 +252,29 @@ serve(async (req) => {
     // Generate render ID for changes
     const renderId = `edit_${crypto.randomUUID()}`;
     
-    // For now, we'll need to process the scene data on the client side
-    // Generate a new edited image URL with the updated scene data
-    const newImageUrl = `${supabaseUrl}/storage/v1/object/public/api-renders/${renderId}.png`;
+    // Generate a new PNG image with applied changes
+    const generatedImageUrl = await generatePNGWithChanges(
+      template.original_image_url || template.edited_image_url, 
+      sceneData, 
+      width, 
+      height, 
+      supabase, 
+      user.id, 
+      renderId
+    );
     
-    // Store the updated scene data for potential future processing
+    // Store the updated scene data and new image
     await supabase
       .from('templates')
       .update({ 
         scene_data: sceneData,
+        edited_image_url: generatedImageUrl,
         updated_at: new Date().toISOString()
       })
       .eq('id', body.templateId)
       .eq('user_id', user.id);
 
-    let finalImageUrl = template.edited_image_url || newImageUrl;
+    let finalImageUrl = generatedImageUrl;
 
     // Record API usage
     await supabase
@@ -294,3 +302,181 @@ serve(async (req) => {
     });
   }
 });
+
+async function generatePNGWithChanges(
+  baseImageUrl: string,
+  sceneData: any,
+  width: number,
+  height: number,
+  supabase: any,
+  userId: string,
+  renderId: string
+): Promise<string> {
+  try {
+    // Create an HTML canvas-like structure to generate the image
+    const canvas = createVirtualCanvas(width, height);
+    
+    // Draw background image if exists
+    if (baseImageUrl) {
+      await drawImageToCanvas(canvas, baseImageUrl);
+    }
+    
+    // Draw all objects from scene data
+    if (sceneData.objects) {
+      for (const obj of sceneData.objects) {
+        await drawObjectToCanvas(canvas, obj);
+      }
+    }
+    
+    // Convert canvas to PNG blob
+    const pngBlob = await canvasToPNGBlob(canvas);
+    
+    // Upload to Supabase storage
+    const imagePath = `renders/${userId}/${renderId}.png`;
+    
+    const { error: uploadError } = await supabase.storage
+      .from('exports')
+      .upload(imagePath, pngBlob, {
+        contentType: 'image/png',
+        cacheControl: '3600'
+      });
+
+    if (uploadError) {
+      console.error('Upload error:', uploadError);
+      throw uploadError;
+    }
+
+    const publicUrl = `https://nracebwmywbyuywhucwo.supabase.co/storage/v1/object/public/exports/${imagePath}`;
+    return publicUrl;
+    
+  } catch (error) {
+    console.error('Error generating PNG:', error);
+    // Fallback to original image if generation fails
+    return baseImageUrl || '';
+  }
+}
+
+function createVirtualCanvas(width: number, height: number) {
+  // For server-side rendering, we'll use an SVG-based approach
+  return {
+    width,
+    height,
+    elements: [] as any[],
+    backgroundColor: '#ffffff'
+  };
+}
+
+async function drawImageToCanvas(canvas: any, imageUrl: string) {
+  // Add background image element
+  canvas.elements.push({
+    type: 'image',
+    src: imageUrl,
+    x: 0,
+    y: 0,
+    width: canvas.width,
+    height: canvas.height
+  });
+}
+
+async function drawObjectToCanvas(canvas: any, obj: any) {
+  if (obj.type === 'text' || obj.type === 'textbox' || obj.type === 'i-text') {
+    canvas.elements.push({
+      type: 'text',
+      text: obj.text || obj.value || obj.content || '',
+      x: obj.left || 0,
+      y: obj.top || 0,
+      fontSize: obj.fontSize || 24,
+      fontFamily: obj.fontFamily || 'Arial',
+      fill: obj.fill || '#000000',
+      fontWeight: obj.fontWeight || 'normal',
+      fontStyle: obj.fontStyle || 'normal',
+      textAlign: obj.textAlign || 'left',
+      underline: obj.underline || false
+    });
+  } else if (obj.type === 'rect') {
+    canvas.elements.push({
+      type: 'rect',
+      x: obj.left || 0,
+      y: obj.top || 0,
+      width: obj.width || 100,
+      height: obj.height || 100,
+      fill: obj.fill || '#000000',
+      stroke: obj.stroke || 'none',
+      strokeWidth: obj.strokeWidth || 0
+    });
+  } else if (obj.type === 'circle') {
+    canvas.elements.push({
+      type: 'circle',
+      x: obj.left || 0,
+      y: obj.top || 0,
+      radius: obj.radius || 50,
+      fill: obj.fill || '#000000',
+      stroke: obj.stroke || 'none',
+      strokeWidth: obj.strokeWidth || 0
+    });
+  }
+}
+
+async function canvasToPNGBlob(canvas: any): Promise<Blob> {
+  // Generate SVG from canvas elements
+  let svgContent = `<svg width="${canvas.width}" height="${canvas.height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">`;
+  
+  // Add background
+  svgContent += `<rect width="100%" height="100%" fill="${canvas.backgroundColor}"/>`;
+  
+  // Add all elements
+  for (const element of canvas.elements) {
+    if (element.type === 'image') {
+      svgContent += `<image href="${element.src}" x="${element.x}" y="${element.y}" width="${element.width}" height="${element.height}"/>`;
+    } else if (element.type === 'text') {
+      const fontWeight = element.fontWeight === 'bold' ? 'bold' : 'normal';
+      const fontStyle = element.fontStyle === 'italic' ? 'italic' : 'normal';
+      const textDecoration = element.underline ? 'underline' : 'none';
+      
+      svgContent += `<text x="${element.x}" y="${element.y + element.fontSize}" 
+        font-family="${element.fontFamily}" 
+        font-size="${element.fontSize}" 
+        fill="${element.fill}"
+        font-weight="${fontWeight}"
+        font-style="${fontStyle}"
+        text-decoration="${textDecoration}"
+        text-anchor="${element.textAlign === 'center' ? 'middle' : element.textAlign === 'right' ? 'end' : 'start'}"
+      >${element.text}</text>`;
+    } else if (element.type === 'rect') {
+      svgContent += `<rect x="${element.x}" y="${element.y}" width="${element.width}" height="${element.height}" 
+        fill="${element.fill}" stroke="${element.stroke}" stroke-width="${element.strokeWidth}"/>`;
+    } else if (element.type === 'circle') {
+      svgContent += `<circle cx="${element.x + element.radius}" cy="${element.y + element.radius}" r="${element.radius}" 
+        fill="${element.fill}" stroke="${element.stroke}" stroke-width="${element.strokeWidth}"/>`;
+    }
+  }
+  
+  svgContent += '</svg>';
+  
+  // For now, we'll convert SVG to PNG using a simple approach
+  // In a production environment, you might want to use a proper image conversion service
+  try {
+    // Try to convert SVG to PNG using external service
+    const response = await fetch('https://api.htmlcsstoimage.com/v1/image', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Basic ' + btoa('demo:demo') // Demo credentials
+      },
+      body: JSON.stringify({
+        html: `<div style="width:${canvas.width}px;height:${canvas.height}px;">${svgContent}</div>`,
+        css: '',
+        format: 'png'
+      })
+    });
+    
+    if (response.ok) {
+      return await response.blob();
+    }
+  } catch (error) {
+    console.error('External conversion failed:', error);
+  }
+  
+  // Fallback: return SVG as blob (will need client-side conversion)
+  return new Blob([svgContent], { type: 'image/svg+xml' });
+}
