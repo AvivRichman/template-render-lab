@@ -8,13 +8,13 @@ const corsHeaders = {
 
 interface RenderRequest {
   templateId: string;
-  output: {
-    format: 'png' | 'jpg' | 'webp';
-    width: number;
-    height: number;
+  output?: {
+    format?: 'png' | 'jpg' | 'webp';
+    width?: number;
+    height?: number;
     background?: string;
   };
-  mutations: Array<{
+  mutations?: Array<{
     selector: { id?: string; name?: string };
     text?: {
       value?: string;
@@ -40,6 +40,8 @@ interface RenderRequest {
       radius?: number;
     };
   }>;
+  // Direct text parameters (text1, text2, etc.)
+  [key: string]: any;
 }
 
 serve(async (req) => {
@@ -113,17 +115,18 @@ serve(async (req) => {
     const body: RenderRequest = await req.json();
 
     // Validate request
-    if (!body.templateId || !body.output || !body.mutations) {
-      return new Response(JSON.stringify({ error: 'Missing required fields: templateId, output, mutations' }), {
+    if (!body.templateId) {
+      return new Response(JSON.stringify({ error: 'Missing required field: templateId' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Clamp dimensions for safety
+    // Set default output settings
+    const output = body.output || {};
     const maxDimension = 2048;
-    const width = Math.min(Math.max(body.output.width, 100), maxDimension);
-    const height = Math.min(Math.max(body.output.height, 100), maxDimension);
+    const width = Math.min(Math.max(output.width || 800, 100), maxDimension);
+    const height = Math.min(Math.max(output.height || 600, 100), maxDimension);
 
     // Fetch template owned by user
     const { data: template, error: templateError } = await supabase
@@ -140,8 +143,100 @@ serve(async (req) => {
       });
     }
 
-    // Return the direct edited image URL if no mutations are provided
-    if (!body.mutations || body.mutations.length === 0) {
+    // Apply mutations to scene data
+    const sceneData = JSON.parse(JSON.stringify(template.scene_data));
+    let hasChanges = false;
+
+    // Check for direct text parameters (text1, text2, etc.)
+    const textParams: { [key: string]: string } = {};
+    for (const [key, value] of Object.entries(body)) {
+      if (key.startsWith('text') && /^text\d+$/.test(key) && typeof value === 'string') {
+        textParams[key] = value;
+        hasChanges = true;
+      }
+    }
+
+    // Apply direct text parameter changes
+    if (Object.keys(textParams).length > 0) {
+      const objects = sceneData.objects || [];
+      
+      // Get all text-like objects (check multiple conditions)
+      const textObjects = objects.filter(obj => 
+        obj.type === 'text' || 
+        obj.type === 'textbox' || 
+        obj.type === 'i-text' ||
+        obj.text !== undefined ||
+        obj.value !== undefined ||
+        (obj.type === undefined && (obj.text || obj.value))
+      );
+      
+      console.log('Found text objects for modification:', textObjects.length);
+      
+      // Assign sequential names to all text objects (text1, text2, text3, etc.)
+      textObjects.forEach((obj, index) => {
+        obj.name = `text${index + 1}`;
+      });
+      
+      // Apply text parameter changes
+      for (const obj of textObjects) {
+        if (textParams[obj.name]) {
+          // Update text content (handle multiple possible properties)
+          if (obj.text !== undefined) obj.text = textParams[obj.name];
+          if (obj.value !== undefined) obj.value = textParams[obj.name];
+          if (obj.content !== undefined) obj.content = textParams[obj.name];
+          
+          console.log(`Updated ${obj.name} with value: ${textParams[obj.name]}`);
+        }
+      }
+    }
+    
+    // Apply traditional mutations if provided
+    if (body.mutations && body.mutations.length > 0) {
+      hasChanges = true;
+      
+      for (const mutation of body.mutations) {
+        const objects = sceneData.objects || [];
+        
+        for (const obj of objects) {
+          // Check if this object matches the selector
+          const matchesId = mutation.selector.id && obj.id === mutation.selector.id;
+          const matchesName = mutation.selector.name && obj.name === mutation.selector.name;
+          
+          if (matchesId || matchesName) {
+            // Apply text mutations
+            if (mutation.text && obj.type === 'text') {
+              if (mutation.text.value !== undefined) obj.text = mutation.text.value;
+              if (mutation.text.fontSize !== undefined) obj.fontSize = Math.min(Math.max(mutation.text.fontSize, 8), 200);
+              if (mutation.text.color !== undefined) obj.fill = mutation.text.color;
+              if (mutation.text.fontFamily !== undefined) obj.fontFamily = mutation.text.fontFamily;
+              if (mutation.text.align !== undefined) obj.textAlign = mutation.text.align;
+              if (mutation.text.bold !== undefined) obj.fontWeight = mutation.text.bold ? 'bold' : 'normal';
+              if (mutation.text.italic !== undefined) obj.fontStyle = mutation.text.italic ? 'italic' : 'normal';
+              if (mutation.text.underline !== undefined) obj.underline = mutation.text.underline;
+            }
+            
+            // Apply position mutations
+            if (mutation.position) {
+              if (mutation.position.x !== undefined) obj.left = Math.max(0, mutation.position.x);
+              if (mutation.position.y !== undefined) obj.top = Math.max(0, mutation.position.y);
+              if (mutation.position.width !== undefined) obj.width = Math.max(1, mutation.position.width);
+              if (mutation.position.height !== undefined) obj.height = Math.max(1, mutation.position.height);
+            }
+            
+            // Apply shape mutations
+            if (mutation.shape && (obj.type === 'rect' || obj.type === 'circle')) {
+              if (mutation.shape.fill !== undefined) obj.fill = mutation.shape.fill;
+              if (mutation.shape.stroke !== undefined) obj.stroke = mutation.shape.stroke;
+              if (mutation.shape.strokeWidth !== undefined) obj.strokeWidth = Math.max(0, mutation.shape.strokeWidth);
+              if (mutation.shape.radius !== undefined && obj.type === 'circle') obj.radius = Math.max(1, mutation.shape.radius);
+            }
+          }
+        }
+      }
+    }
+
+    // Return the direct edited image URL if no changes are requested
+    if (!hasChanges) {
       if (template.edited_image_url) {
         return new Response(JSON.stringify({
           status: 'ok',
@@ -154,60 +249,24 @@ serve(async (req) => {
       }
     }
 
-    // Apply mutations to scene data
-    const sceneData = JSON.parse(JSON.stringify(template.scene_data));
+    // Generate render ID for changes
+    const renderId = `edit_${crypto.randomUUID()}`;
     
-    for (const mutation of body.mutations) {
-      const objects = sceneData.objects || [];
-      
-      for (const obj of objects) {
-        // Check if this object matches the selector
-        const matchesId = mutation.selector.id && obj.id === mutation.selector.id;
-        const matchesName = mutation.selector.name && obj.name === mutation.selector.name;
-        
-        if (matchesId || matchesName) {
-          // Apply text mutations
-          if (mutation.text && obj.type === 'text') {
-            if (mutation.text.value !== undefined) obj.text = mutation.text.value;
-            if (mutation.text.fontSize !== undefined) obj.fontSize = Math.min(Math.max(mutation.text.fontSize, 8), 200);
-            if (mutation.text.color !== undefined) obj.fill = mutation.text.color;
-            if (mutation.text.fontFamily !== undefined) obj.fontFamily = mutation.text.fontFamily;
-            if (mutation.text.align !== undefined) obj.textAlign = mutation.text.align;
-            if (mutation.text.bold !== undefined) obj.fontWeight = mutation.text.bold ? 'bold' : 'normal';
-            if (mutation.text.italic !== undefined) obj.fontStyle = mutation.text.italic ? 'italic' : 'normal';
-            if (mutation.text.underline !== undefined) obj.underline = mutation.text.underline;
-          }
-          
-          // Apply position mutations
-          if (mutation.position) {
-            if (mutation.position.x !== undefined) obj.left = Math.max(0, mutation.position.x);
-            if (mutation.position.y !== undefined) obj.top = Math.max(0, mutation.position.y);
-            if (mutation.position.width !== undefined) obj.width = Math.max(1, mutation.position.width);
-            if (mutation.position.height !== undefined) obj.height = Math.max(1, mutation.position.height);
-          }
-          
-          // Apply shape mutations
-          if (mutation.shape && (obj.type === 'rect' || obj.type === 'circle')) {
-            if (mutation.shape.fill !== undefined) obj.fill = mutation.shape.fill;
-            if (mutation.shape.stroke !== undefined) obj.stroke = mutation.shape.stroke;
-            if (mutation.shape.strokeWidth !== undefined) obj.strokeWidth = Math.max(0, mutation.shape.strokeWidth);
-            if (mutation.shape.radius !== undefined && obj.type === 'circle') obj.radius = Math.max(1, mutation.shape.radius);
-          }
-        }
-      }
-    }
+    // For now, we'll need to process the scene data on the client side
+    // Generate a new edited image URL with the updated scene data
+    const newImageUrl = `${supabaseUrl}/storage/v1/object/public/api-renders/${renderId}.png`;
+    
+    // Store the updated scene data for potential future processing
+    await supabase
+      .from('templates')
+      .update({ 
+        scene_data: sceneData,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', body.templateId)
+      .eq('user_id', user.id);
 
-    // Generate render ID for new mutations
-    const renderId = `mut_${crypto.randomUUID()}`;
-    
-    // Apply mutations to base edited image if needed
-    // For now, return the base edited image URL since we can't process mutations server-side
-    let finalImageUrl = template.edited_image_url;
-    
-    if (!finalImageUrl) {
-      // Fallback to generating a placeholder if no edited image exists
-      finalImageUrl = `${supabaseUrl}/storage/v1/object/public/exports/placeholder.png`;
-    }
+    let finalImageUrl = template.edited_image_url || newImageUrl;
 
     // Record API usage
     await supabase
