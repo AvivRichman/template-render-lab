@@ -66,14 +66,19 @@ export const APIDocs = () => {
   const getTemplateElements = (template: any) => {
     if (!template?.scene_data?.objects) return [];
     
-    return template.scene_data.objects
-      .filter((obj: any) => obj.type === 'text')
-      .map((obj: any, index: number) => ({
-        id: obj.id || 'unknown',
-        name: obj.name || `text${index + 1}`,
-        type: obj.type || 'unknown',
-        currentValue: obj.text || ''
-      }));
+    // Get all text objects first
+    const textObjects = template.scene_data.objects.filter((obj: any) => obj.type === 'text');
+    
+    // Assign sequential names if not already present
+    return textObjects.map((obj: any, index: number) => {
+      const assignedName = obj.name || `text${index + 1}`;
+      return {
+        id: obj.id || `text_${index}`,
+        name: assignedName,
+        type: 'text',
+        currentValue: obj.text || obj.value || ''
+      };
+    });
   };
 
   const getSelectedTemplateElements = () => {

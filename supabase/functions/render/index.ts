@@ -160,24 +160,19 @@ serve(async (req) => {
     if (Object.keys(textParams).length > 0) {
       const objects = sceneData.objects || [];
       
-      // First, assign sequential names to text objects that don't have them
-      let textIndex = 1;
-      for (const obj of objects) {
-        if (obj.type === 'text' && !obj.name) {
-          obj.name = `text${textIndex}`;
-          textIndex++;
-        } else if (obj.type === 'text' && obj.name) {
-          const match = obj.name.match(/^text(\d+)$/);
-          if (match) {
-            textIndex = Math.max(textIndex, parseInt(match[1]) + 1);
-          }
-        }
-      }
+      // Get only text objects and assign sequential names
+      const textObjects = objects.filter(obj => obj.type === 'text');
+      
+      // Assign sequential names to all text objects (text1, text2, text3, etc.)
+      textObjects.forEach((obj, index) => {
+        obj.name = `text${index + 1}`;
+      });
       
       // Apply text parameter changes
-      for (const obj of objects) {
-        if (obj.type === 'text' && obj.name && textParams[obj.name]) {
+      for (const obj of textObjects) {
+        if (textParams[obj.name]) {
           obj.text = textParams[obj.name];
+          console.log(`Updated ${obj.name} with value: ${textParams[obj.name]}`);
         }
       }
     }
