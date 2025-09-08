@@ -239,13 +239,13 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
     }
 
     const sceneData = fabricCanvas.toJSON();
-    const thumbnailUrl = fabricCanvas.toDataURL({
+    const editedImageDataUrl = fabricCanvas.toDataURL({
       format: 'png',
-      quality: 0.8,
-      multiplier: 0.3
+      quality: 1,
+      multiplier: 1
     });
 
-    const savedTemplate = await saveTemplate(templateName, sceneData, thumbnailUrl);
+    const savedTemplate = await saveTemplate(templateName, sceneData, editedImageDataUrl, uploadedImage);
     
     if (savedTemplate) {
       setTemplateName("");

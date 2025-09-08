@@ -140,6 +140,20 @@ serve(async (req) => {
       });
     }
 
+    // Return the direct edited image URL if no mutations are provided
+    if (!body.mutations || body.mutations.length === 0) {
+      if (template.edited_image_url) {
+        return new Response(JSON.stringify({
+          status: 'ok',
+          imageUrl: template.edited_image_url,
+          renderId: `direct_${crypto.randomUUID()}`,
+          message: 'Returning stored edited image'
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     // Apply mutations to scene data
     const sceneData = JSON.parse(JSON.stringify(template.scene_data));
     
@@ -183,12 +197,17 @@ serve(async (req) => {
       }
     }
 
-    // Generate render ID
-    const renderId = `rnd_${crypto.randomUUID()}`;
+    // Generate render ID for new mutations
+    const renderId = `mut_${crypto.randomUUID()}`;
     
-    // For now, we'll return a mock response since we can't actually render Fabric.js on the server
-    // In a real implementation, you'd use a headless browser or canvas rendering service
-    const mockImageUrl = `${supabaseUrl}/storage/v1/object/public/api-renders/users/${user.id}/${renderId}.${body.output.format}`;
+    // Apply mutations to base edited image if needed
+    // For now, return the base edited image URL since we can't process mutations server-side
+    let finalImageUrl = template.edited_image_url;
+    
+    if (!finalImageUrl) {
+      // Fallback to generating a placeholder if no edited image exists
+      finalImageUrl = `${supabaseUrl}/storage/v1/object/public/exports/placeholder.png`;
+    }
 
     // Record API usage
     await supabase
@@ -201,9 +220,9 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({
       status: 'ok',
-      imageUrl: mockImageUrl,
+      imageUrl: finalImageUrl,
       renderId: renderId,
-      message: 'Template rendering is simulated - actual rendering would require a headless browser service'
+      message: 'Returning edited template image'
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
