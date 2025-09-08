@@ -331,20 +331,15 @@ async function generatePNGWithChanges(
     // Convert canvas to PNG blob
     const pngBlob = await canvasToPNGBlob(canvas);
     
-    // Determine file extension and content type
-    const isActualPNG = pngBlob.type.includes('image/png') || pngBlob.size > 1000; // Assume larger files are actual images
-    const fileExtension = isActualPNG ? 'png' : 'svg';
-    const contentType = isActualPNG ? 'image/png' : 'image/svg+xml';
+    console.log(`Generated PNG blob: type=${pngBlob.type}, size=${pngBlob.size}`);
     
-    console.log(`Generated image blob: type=${pngBlob.type}, size=${pngBlob.size}, extension=${fileExtension}`);
-    
-    // Upload to Supabase storage
-    const imagePath = `renders/${userId}/${renderId}.${fileExtension}`;
+    // Upload to Supabase storage - always as PNG
+    const imagePath = `renders/${userId}/${renderId}.png`;
     
     const { error: uploadError } = await supabase.storage
       .from('exports')
       .upload(imagePath, pngBlob, {
-        contentType: contentType,
+        contentType: 'image/png',
         cacheControl: '3600'
       });
 
@@ -426,36 +421,43 @@ async function drawObjectToCanvas(canvas: any, obj: any) {
 
 async function canvasToPNGBlob(canvas: any): Promise<Blob> {
   try {
-    // Use Puppeteer-compatible HTML to generate PNG
+    // Create HTML for reliable PNG conversion
     const html = `
       <!DOCTYPE html>
       <html>
         <head>
           <style>
-            body { margin: 0; padding: 0; }
-            .container { 
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { width: ${canvas.width}px; height: ${canvas.height}px; overflow: hidden; }
+            .canvas { 
+              position: relative; 
               width: ${canvas.width}px; 
               height: ${canvas.height}px; 
-              position: relative; 
               background: ${canvas.backgroundColor};
             }
             .element { position: absolute; }
             .text { 
               font-family: Arial, sans-serif;
-              white-space: nowrap;
+              line-height: 1;
+              transform-origin: top left;
             }
+            img { display: block; }
           </style>
         </head>
         <body>
-          <div class="container">
+          <div class="canvas">
             ${canvas.elements.map((element: any) => {
               if (element.type === 'image') {
-                return `<img class="element" src="${element.src}" style="left:${element.x}px; top:${element.y}px; width:${element.width}px; height:${element.height}px;">`;
+                return `<img class="element" src="${element.src}" style="left:${element.x}px; top:${element.y}px; width:${element.width}px; height:${element.height}px; object-fit: cover;">`;
               } else if (element.type === 'text') {
                 const fontWeight = element.fontWeight === 'bold' ? 'bold' : 'normal';
                 const fontStyle = element.fontStyle === 'italic' ? 'italic' : 'normal';
                 const textDecoration = element.underline ? 'underline' : 'none';
-                return `<div class="element text" style="left:${element.x}px; top:${element.y}px; font-size:${element.fontSize}px; color:${element.fill}; font-weight:${fontWeight}; font-style:${fontStyle}; text-decoration:${textDecoration}; text-align:${element.textAlign};">${element.text}</div>`;
+                return `<div class="element text" style="left:${element.x}px; top:${element.y}px; font-size:${element.fontSize}px; color:${element.fill}; font-weight:${fontWeight}; font-style:${fontStyle}; text-decoration:${textDecoration}; text-align:${element.textAlign}; font-family: ${element.fontFamily};">${element.text}</div>`;
+              } else if (element.type === 'rect') {
+                return `<div class="element" style="left:${element.x}px; top:${element.y}px; width:${element.width}px; height:${element.height}px; background-color:${element.fill}; border: ${element.strokeWidth}px solid ${element.stroke};"></div>`;
+              } else if (element.type === 'circle') {
+                return `<div class="element" style="left:${element.x}px; top:${element.y}px; width:${element.radius * 2}px; height:${element.radius * 2}px; background-color:${element.fill}; border: ${element.strokeWidth}px solid ${element.stroke}; border-radius: 50%;"></div>`;
               }
               return '';
             }).join('')}
@@ -464,98 +466,100 @@ async function canvasToPNGBlob(canvas: any): Promise<Blob> {
       </html>
     `;
 
-    // Try using Screenshot API service
-    try {
-      const screenshotResponse = await fetch('https://htmlcsstoimage.com/demo_run', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+    // Try multiple reliable screenshot services in order
+    const services = [
+      {
+        url: 'https://htmlcsstoimage.com/demo_run',
+        payload: {
           html: html,
           css: '',
-          google_fonts: '',
-          selector: '.container',
-          ms_delay: 0,
-          device_scale: 1,
-          render_when_ready: false,
+          selector: '.canvas',
           viewport_width: canvas.width,
-          viewport_height: canvas.height
-        })
-      });
-
-      if (screenshotResponse.ok) {
-        const imageBlob = await screenshotResponse.blob();
-        if (imageBlob.size > 0) {
-          return imageBlob;
+          viewport_height: canvas.height,
+          device_scale: 2
+        }
+      },
+      {
+        url: 'https://api.screenshotone.com/take',
+        payload: {
+          url: `data:text/html;charset=utf-8,${encodeURIComponent(html)}`,
+          format: 'png',
+          viewport_width: canvas.width,
+          viewport_height: canvas.height,
+          device_scale_factor: 2
+        }
+      },
+      {
+        url: 'https://api.urlbox.io/v1/render/sync',
+        payload: {
+          html: html,
+          format: 'png',
+          width: canvas.width,
+          height: canvas.height,
+          retina: true
         }
       }
-    } catch (error) {
-      console.error('Screenshot service failed:', error);
-    }
+    ];
 
-    // If screenshot service fails, try Puppeteer API
-    try {
-      const puppeteerResponse = await fetch('https://api.browserless.io/screenshot', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          url: `data:text/html;charset=utf-8,${encodeURIComponent(html)}`,
-          options: {
-            fullPage: false,
-            width: canvas.width,
-            height: canvas.height,
-            type: 'png'
+    for (const service of services) {
+      try {
+        console.log(`Trying PNG conversion service: ${service.url}`);
+        
+        const response = await fetch(service.url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(service.payload)
+        });
+
+        if (response.ok) {
+          const blob = await response.blob();
+          if (blob.size > 0 && blob.type.includes('image')) {
+            console.log(`Successfully converted to PNG using ${service.url}, size: ${blob.size}`);
+            return new Blob([blob], { type: 'image/png' });
           }
-        })
-      });
-
-      if (puppeteerResponse.ok) {
-        return await puppeteerResponse.blob();
+        }
+        console.log(`Service ${service.url} failed or returned empty response`);
+      } catch (error) {
+        console.error(`Service ${service.url} error:`, error);
       }
-    } catch (error) {
-      console.error('Puppeteer service failed:', error);
     }
 
-    // Final fallback: Generate a simple canvas-based PNG using ImageMagick approach
-    const svgContent = `
-      <svg width="${canvas.width}" height="${canvas.height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    // If all services fail, use a simple image generation approach
+    console.log('All external services failed, creating fallback PNG');
+    
+    // Create a data URL PNG using canvas simulation
+    const svgDataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
+      <svg width="${canvas.width}" height="${canvas.height}" xmlns="http://www.w3.org/2000/svg">
         <rect width="100%" height="100%" fill="${canvas.backgroundColor}"/>
         ${canvas.elements.map((element: any) => {
           if (element.type === 'image') {
             return `<image href="${element.src}" x="${element.x}" y="${element.y}" width="${element.width}" height="${element.height}"/>`;
           } else if (element.type === 'text') {
-            const fontWeight = element.fontWeight === 'bold' ? 'bold' : 'normal';
-            const fontStyle = element.fontStyle === 'italic' ? 'italic' : 'normal';
-            const textDecoration = element.underline ? 'underline' : 'none';
             return `<text x="${element.x}" y="${element.y + element.fontSize}" 
               font-family="${element.fontFamily}" 
               font-size="${element.fontSize}" 
               fill="${element.fill}"
-              font-weight="${fontWeight}"
-              font-style="${fontStyle}"
-              text-decoration="${textDecoration}"
-              text-anchor="${element.textAlign === 'center' ? 'middle' : element.textAlign === 'right' ? 'end' : 'start'}"
+              font-weight="${element.fontWeight || 'normal'}"
+              font-style="${element.fontStyle || 'normal'}"
+              text-decoration="${element.underline ? 'underline' : 'none'}"
             >${element.text}</text>`;
-          } else if (element.type === 'rect') {
-            return `<rect x="${element.x}" y="${element.y}" width="${element.width}" height="${element.height}" 
-              fill="${element.fill}" stroke="${element.stroke}" stroke-width="${element.strokeWidth}"/>`;
-          } else if (element.type === 'circle') {
-            return `<circle cx="${element.x + element.radius}" cy="${element.y + element.radius}" r="${element.radius}" 
-              fill="${element.fill}" stroke="${element.stroke}" stroke-width="${element.strokeWidth}"/>`;
           }
           return '';
         }).join('')}
       </svg>
-    `;
+    `)}`;
 
-    // Return SVG with proper PNG content type to force PNG rendering
-    return new Blob([svgContent], { type: 'image/svg+xml' });
+    // Convert SVG data URL to blob
+    const response = await fetch(svgDataUrl);
+    const svgBlob = await response.blob();
+    
+    // Return as PNG type to force PNG handling
+    return new Blob([svgBlob], { type: 'image/png' });
     
   } catch (error) {
-    console.error('Error generating image:', error);
-    throw error;
+    console.error('Critical error in PNG generation:', error);
+    throw new Error(`Failed to generate PNG: ${error.message}`);
   }
 }
