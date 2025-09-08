@@ -162,64 +162,23 @@ export const APIDemo = () => {
     toast("Copied to clipboard!");
   };
 
-  // Generate available elements text for the selected template
-  const getAvailableElements = () => {
-    if (!selectedTemplate) return 'No template selected';
-    
-    if (selectedTemplate.elements.length === 0) {
-      return 'No editable elements found in this template';
-    }
-    
-    const elementsList = selectedTemplate.elements.map(element => 
-      `• "${element.editable_key}" (${element.type}): ${element.content || 'No content'}`
-    ).join('\n');
-    
-    return `Available elements in "${selectedTemplate.name}":\n${elementsList}`;
-  };
-
   // Generate code examples based on selected template
   const generateCurlExample = () => {
     if (!selectedTemplate) return '';
-    
-    // Create example overrides based on actual elements
-    const exampleOverrides = selectedTemplate.elements.reduce((acc, element) => {
-      if (element.type === 'text') {
-        acc[element.editable_key] = `New ${element.editable_key}`;
-      }
-      return acc;
-    }, {} as Record<string, string>);
-    
-    const overridesString = Object.keys(exampleOverrides).length > 0 
-      ? JSON.stringify(exampleOverrides, null, 4).replace(/\n/g, '\n    ')
-      : '{}';
     
     return `curl -X POST ${baseUrl}/api-generate \\
   -H "Authorization: Bearer YOUR_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '{
     "template_id": "${selectedTemplate.id}",
-    "overrides": ${overridesString}
-  }'
-
-# Available elements in "${selectedTemplate.name}":
-${selectedTemplate.elements.map(el => `# • "${el.editable_key}" (${el.type}): "${el.content || 'No content'}"`).join('\n')}`;
+    "overrides": ${textOverrides}
+  }'`;
   };
 
   const generateJsExample = () => {
     if (!selectedTemplate) return '';
     
-    // Create example overrides based on actual elements
-    const exampleOverrides = selectedTemplate.elements.reduce((acc, element) => {
-      if (element.type === 'text') {
-        acc[element.editable_key] = `New ${element.editable_key}`;
-      }
-      return acc;
-    }, {} as Record<string, string>);
-    
-    return `// Available elements in "${selectedTemplate.name}":
-${selectedTemplate.elements.map(el => `// • "${el.editable_key}" (${el.type}): "${el.content || 'No content'}"`).join('\n')}
-
-const response = await fetch('${baseUrl}/api-generate', {
+    return `const response = await fetch('${baseUrl}/api-generate', {
   method: 'POST',
   headers: {
     'Authorization': 'Bearer YOUR_TOKEN',
@@ -227,7 +186,7 @@ const response = await fetch('${baseUrl}/api-generate', {
   },
   body: JSON.stringify({
     template_id: '${selectedTemplate.id}',
-    overrides: ${JSON.stringify(exampleOverrides, null, 6).replace(/\n/g, '\n    ')}
+    overrides: ${textOverrides}
   })
 });
 
@@ -238,19 +197,8 @@ console.log(data.image_url);`;
   const generatePythonExample = () => {
     if (!selectedTemplate) return '';
     
-    // Create example overrides based on actual elements
-    const exampleOverrides = selectedTemplate.elements.reduce((acc, element) => {
-      if (element.type === 'text') {
-        acc[element.editable_key] = `New ${element.editable_key}`;
-      }
-      return acc;
-    }, {} as Record<string, string>);
-    
     return `import requests
 import json
-
-# Available elements in "${selectedTemplate.name}":
-${selectedTemplate.elements.map(el => `# • "${el.editable_key}" (${el.type}): "${el.content || 'No content'}"`).join('\n')}
 
 url = "${baseUrl}/api-generate"
 headers = {
@@ -259,7 +207,7 @@ headers = {
 }
 data = {
     "template_id": "${selectedTemplate.id}",
-    "overrides": ${JSON.stringify(exampleOverrides, null, 4).replace(/\n/g, '\n    ')}
+    "overrides": ${textOverrides}
 }
 
 response = requests.post(url, headers=headers, json=data)
