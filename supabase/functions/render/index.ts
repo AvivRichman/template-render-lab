@@ -160,6 +160,21 @@ serve(async (req) => {
     if (Object.keys(textParams).length > 0) {
       const objects = sceneData.objects || [];
       
+      // First, assign sequential names to text objects that don't have them
+      let textIndex = 1;
+      for (const obj of objects) {
+        if (obj.type === 'text' && !obj.name) {
+          obj.name = `text${textIndex}`;
+          textIndex++;
+        } else if (obj.type === 'text' && obj.name) {
+          const match = obj.name.match(/^text(\d+)$/);
+          if (match) {
+            textIndex = Math.max(textIndex, parseInt(match[1]) + 1);
+          }
+        }
+      }
+      
+      // Apply text parameter changes
       for (const obj of objects) {
         if (obj.type === 'text' && obj.name && textParams[obj.name]) {
           obj.text = textParams[obj.name];

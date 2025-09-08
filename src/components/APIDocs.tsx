@@ -66,45 +66,41 @@ export const APIDocs = () => {
   const getTemplateElements = (template: any) => {
     if (!template?.scene_data?.objects) return [];
     
-    return template.scene_data.objects.map((obj: any) => ({
-      id: obj.id || 'unknown',
-      name: obj.name || obj.type || 'unnamed',
-      type: obj.type || 'unknown'
-    }));
+    return template.scene_data.objects
+      .filter((obj: any) => obj.type === 'text')
+      .map((obj: any, index: number) => ({
+        id: obj.id || 'unknown',
+        name: obj.name || `text${index + 1}`,
+        type: obj.type || 'unknown',
+        currentValue: obj.text || ''
+      }));
+  };
+
+  const getSelectedTemplateElements = () => {
+    if (!selectedTemplate) return [];
+    const template = templates.find(t => t.id === selectedTemplate);
+    return template ? getTemplateElements(template) : [];
+  };
+
+  const selectedElements = getSelectedTemplateElements();
+
+  const generateElementParams = () => {
+    if (selectedElements.length === 0) return '';
+    return selectedElements.map(element => `    "${element.name}": "New ${element.name} value"`).join(',\n');
   };
 
   const curlExample = `curl -X POST "${baseUrl}/render" \\
   -H "Authorization: Bearer ${bearerToken}" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "templateId": "${selectedTemplate || 'TPL_REPLACE'}",
-    "output": {
-      "format": "png",
-      "width": 1080,
-      "height": 1350,
-      "background": "transparent"
-    },
-    "mutations": [
-      {
-        "selector": { "name": "headline" },
-        "text": {
-          "value": "Hello World",
-          "fontSize": 64,
-          "color": "#ffffff",
-          "align": "center"
-        }
-      },
-      {
-        "selector": { "id": "badge" },
-        "shape": {
-          "type": "rectangle",
-          "fill": "#000000",
-          "stroke": "#ffffff",
-          "strokeWidth": 2
-        }
-      }
-    ]
+    "templateId": "${selectedTemplate || 'TPL_REPLACE'}"${selectedElements.length > 0 ? `,\n${generateElementParams()}` : ''}
   }'`;
+
+  const generateJsElementParams = () => {
+    if (selectedElements.length === 0) return '';
+    const params = selectedElements.map(element => `    ${element.name}: 'New ${element.name} value'`).join(',\n');
+    return `,\n${params}`;
+  };
 
   const jsExample = `const response = await fetch('${baseUrl}/render', {
   method: 'POST',
@@ -113,24 +109,7 @@ export const APIDocs = () => {
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
-    templateId: '${selectedTemplate || 'TPL_REPLACE'}',
-    output: {
-      format: 'png',
-      width: 1080,
-      height: 1350,
-      background: 'transparent'
-    },
-    mutations: [
-      {
-        selector: { name: 'headline' },
-        text: {
-          value: 'Hello World',
-          fontSize: 64,
-          color: '#ffffff',
-          align: 'center'
-        }
-      }
-    ]
+    templateId: '${selectedTemplate || 'TPL_REPLACE'}'${selectedElements.length > 0 ? generateJsElementParams() : ''}
   })
 });
 
@@ -138,44 +117,7 @@ const data = await response.json();
 console.log('Rendered image URL:', data.imageUrl);`;
 
   const jsonExample = `{
-  "templateId": "${selectedTemplate || 'TPL_REPLACE'}",
-  "output": {
-    "format": "png",
-    "width": 1080,
-    "height": 1350,
-    "background": "transparent"
-  },
-  "mutations": [
-    {
-      "selector": { "name": "headline" },
-      "text": {
-        "value": "Hello World",
-        "fontSize": 64,
-        "color": "#ffffff",
-        "align": "center",
-        "bold": true
-      }
-    },
-    {
-      "selector": { "id": "badge" },
-      "shape": {
-        "type": "rectangle",
-        "fill": "#000000",
-        "stroke": "#ffffff",
-        "strokeWidth": 2,
-        "radius": 12
-      }
-    },
-    {
-      "selector": { "name": "logo" },
-      "position": {
-        "x": 100,
-        "y": 50,
-        "width": 200,
-        "height": 100
-      }
-    }
-  ]
+  "templateId": "${selectedTemplate || 'TPL_REPLACE'}"${selectedElements.length > 0 ? `,${selectedElements.map(element => `\n  "${element.name}": "New ${element.name} value"`).join(',')}` : ''}
 }`;
 
   return (
@@ -293,19 +235,22 @@ console.log('Rendered image URL:', data.imageUrl);`;
                   {elements.length > 0 ? (
                     <div className="space-y-2">
                       <h4 className="text-sm font-medium text-muted-foreground">Elements ({elements.length})</h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                        {elements.map((element, idx) => (
-                          <div key={idx} className="bg-muted rounded p-2 text-xs">
-                            <div className="font-medium">
-                              <Badge variant="secondary" className="text-xs mr-2">
-                                {element.type}
-                              </Badge>
-                              {element.name}
-                            </div>
-                            <code className="text-muted-foreground">id: {element.id}</code>
-                          </div>
-                        ))}
-                      </div>
+                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                         {elements.map((element, idx) => (
+                           <div key={idx} className="bg-muted rounded p-2 text-xs">
+                             <div className="font-medium">
+                               <Badge variant="secondary" className="text-xs mr-2">
+                                 {element.type}
+                               </Badge>
+                               {element.name}
+                             </div>
+                             <code className="text-muted-foreground">API param: {element.name}</code>
+                             {element.currentValue && (
+                               <div className="text-muted-foreground mt-1">Current: "{element.currentValue}"</div>
+                             )}
+                           </div>
+                         ))}
+                       </div>
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">No elements found in this template</p>
@@ -325,12 +270,25 @@ console.log('Rendered image URL:', data.imageUrl);`;
       <Card className="p-6">
         <h2 className="text-xl font-semibold mb-4">Code Examples</h2>
         
-        <Tabs defaultValue="curl" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="curl">cURL</TabsTrigger>
-            <TabsTrigger value="javascript">JavaScript</TabsTrigger>
-            <TabsTrigger value="json">JSON</TabsTrigger>
-          </TabsList>
+         {selectedTemplate && selectedElements.length > 0 && (
+           <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-950 rounded-lg">
+             <h3 className="font-medium mb-2">Available Elements for "{templates.find(t => t.id === selectedTemplate)?.name}"</h3>
+             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+               {selectedElements.map((element, idx) => (
+                 <Badge key={idx} variant="outline" className="text-xs">
+                   {element.name}
+                 </Badge>
+               ))}
+             </div>
+           </div>
+         )}
+         
+         <Tabs defaultValue="curl" className="w-full">
+           <TabsList className="grid w-full grid-cols-3">
+             <TabsTrigger value="curl">cURL</TabsTrigger>
+             <TabsTrigger value="javascript">JavaScript</TabsTrigger>
+             <TabsTrigger value="json">JSON</TabsTrigger>
+           </TabsList>
           
           <TabsContent value="curl" className="space-y-4">
             <div className="relative">
