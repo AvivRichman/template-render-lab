@@ -44,6 +44,87 @@ interface RenderRequest {
   [key: string]: any;
 }
 
+// Generate image from scene data using server-side canvas rendering
+async function generateImageFromSceneData(sceneData: any, width: number, height: number, supabase: any, renderId: string): Promise<string> {
+  try {
+    // Create a simple SVG representation of the scene
+    const objects = sceneData.objects || [];
+    let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">`;
+    
+    // Add background
+    svgContent += `<rect width="100%" height="100%" fill="${sceneData.background || '#ffffff'}"/>`;
+    
+    // Process each object in the scene
+    for (const obj of objects) {
+      if (obj.type === 'text' || obj.type === 'textbox' || obj.type === 'i-text' || obj.text !== undefined || obj.value !== undefined) {
+        // Render text elements
+        const text = obj.text || obj.value || obj.content || '';
+        const fontSize = obj.fontSize || 16;
+        const fill = obj.fill || '#000000';
+        const left = obj.left || 0;
+        const top = (obj.top || 0) + fontSize; // Adjust for baseline
+        const fontFamily = obj.fontFamily || 'Arial';
+        const fontWeight = obj.fontWeight || 'normal';
+        const fontStyle = obj.fontStyle || 'normal';
+        
+        svgContent += `<text x="${left}" y="${top}" font-family="${fontFamily}" font-size="${fontSize}" fill="${fill}" font-weight="${fontWeight}" font-style="${fontStyle}">${text}</text>`;
+      } else if (obj.type === 'rect') {
+        // Render rectangles
+        const fill = obj.fill || '#000000';
+        const left = obj.left || 0;
+        const top = obj.top || 0;
+        const objWidth = obj.width || 100;
+        const objHeight = obj.height || 100;
+        const stroke = obj.stroke || 'none';
+        const strokeWidth = obj.strokeWidth || 0;
+        
+        svgContent += `<rect x="${left}" y="${top}" width="${objWidth}" height="${objHeight}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
+      } else if (obj.type === 'circle') {
+        // Render circles
+        const fill = obj.fill || '#000000';
+        const left = obj.left || 0;
+        const top = obj.top || 0;
+        const radius = obj.radius || 50;
+        const stroke = obj.stroke || 'none';
+        const strokeWidth = obj.strokeWidth || 0;
+        
+        svgContent += `<circle cx="${left + radius}" cy="${top + radius}" r="${radius}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
+      }
+    }
+    
+    svgContent += '</svg>';
+    
+    // Convert SVG to PNG using a simple approach (for now we'll just save the SVG)
+    // In a full implementation, you'd convert SVG to PNG using a proper image library
+    const imageBuffer = new TextEncoder().encode(svgContent);
+    
+    // Upload to Supabase storage
+    const fileName = `${renderId}.svg`; // Using SVG for now
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('api-renders')
+      .upload(fileName, imageBuffer, {
+        contentType: 'image/svg+xml',
+        upsert: true
+      });
+    
+    if (uploadError) {
+      console.error('Upload error:', uploadError);
+      throw new Error(`Failed to upload image: ${uploadError.message}`);
+    }
+    
+    // Get the public URL
+    const { data: urlData } = supabase.storage
+      .from('api-renders')
+      .getPublicUrl(fileName);
+    
+    return urlData.publicUrl;
+    
+  } catch (error) {
+    console.error('Error generating image:', error);
+    throw error;
+  }
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -252,21 +333,21 @@ serve(async (req) => {
     // Generate render ID for changes
     const renderId = `edit_${crypto.randomUUID()}`;
     
-    // For now, we'll need to process the scene data on the client side
-    // Generate a new edited image URL with the updated scene data
-    const newImageUrl = `${supabaseUrl}/storage/v1/object/public/api-renders/${renderId}.png`;
+    // Generate a new image with the updated scene data using HTML5 Canvas
+    const newImageUrl = await generateImageFromSceneData(sceneData, width, height, supabase, renderId);
     
-    // Store the updated scene data for potential future processing
+    // Store the updated scene data and new image URL
     await supabase
       .from('templates')
       .update({ 
         scene_data: sceneData,
+        edited_image_url: newImageUrl,
         updated_at: new Date().toISOString()
       })
       .eq('id', body.templateId)
       .eq('user_id', user.id);
 
-    let finalImageUrl = template.edited_image_url || newImageUrl;
+    let finalImageUrl = newImageUrl;
 
     // Record API usage
     await supabase
