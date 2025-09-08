@@ -8,13 +8,24 @@ const corsHeaders = {
 
 interface RenderRequest {
   templateId: string;
-  output: {
+  text1?: string;
+  text2?: string;
+  text3?: string;
+  text4?: string;
+  text5?: string;
+  text6?: string;
+  text7?: string;
+  text8?: string;
+  text9?: string;
+  text10?: string;
+  // Legacy format support
+  output?: {
     format: 'png' | 'jpg' | 'webp';
     width: number;
     height: number;
     background?: string;
   };
-  mutations: Array<{
+  mutations?: Array<{
     selector: { id?: string; name?: string };
     text?: {
       value?: string;
@@ -113,17 +124,12 @@ serve(async (req) => {
     const body: RenderRequest = await req.json();
 
     // Validate request
-    if (!body.templateId || !body.output || !body.mutations) {
-      return new Response(JSON.stringify({ error: 'Missing required fields: templateId, output, mutations' }), {
+    if (!body.templateId) {
+      return new Response(JSON.stringify({ error: 'Missing required field: templateId' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-
-    // Clamp dimensions for safety
-    const maxDimension = 2048;
-    const width = Math.min(Math.max(body.output.width, 100), maxDimension);
-    const height = Math.min(Math.max(body.output.height, 100), maxDimension);
 
     // Fetch template owned by user
     const { data: template, error: templateError } = await supabase
@@ -140,74 +146,208 @@ serve(async (req) => {
       });
     }
 
-    // Return the direct edited image URL if no mutations are provided
-    if (!body.mutations || body.mutations.length === 0) {
+    // Check if any text updates are provided
+    const textUpdates: { [key: string]: string } = {};
+    for (let i = 1; i <= 10; i++) {
+      const textKey = `text${i}` as keyof RenderRequest;
+      if (body[textKey] && typeof body[textKey] === 'string') {
+        textUpdates[`text${i}`] = body[textKey] as string;
+      }
+    }
+
+    // Return the original edited image if no updates are provided
+    if (Object.keys(textUpdates).length === 0 && (!body.mutations || body.mutations.length === 0)) {
       if (template.edited_image_url) {
         return new Response(JSON.stringify({
           status: 'ok',
           imageUrl: template.edited_image_url,
           renderId: `direct_${crypto.randomUUID()}`,
-          message: 'Returning stored edited image'
+          message: 'Returning stored edited image (no changes requested)'
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
     }
 
-    // Apply mutations to scene data
+    // Parse and prepare scene data
     const sceneData = JSON.parse(JSON.stringify(template.scene_data));
-    
-    for (const mutation of body.mutations) {
-      const objects = sceneData.objects || [];
-      
-      for (const obj of objects) {
-        // Check if this object matches the selector
-        const matchesId = mutation.selector.id && obj.id === mutation.selector.id;
-        const matchesName = mutation.selector.name && obj.name === mutation.selector.name;
+    console.info('Found text objects for modification:', sceneData.objects?.filter((obj: any) => obj.type === 'text').length || 0);
+
+    // Assign sequential names to text objects and apply updates
+    let textIndex = 1;
+    for (const obj of sceneData.objects || []) {
+      if (obj.type === 'text') {
+        const textKey = `text${textIndex}`;
         
-        if (matchesId || matchesName) {
-          // Apply text mutations
-          if (mutation.text && obj.type === 'text') {
-            if (mutation.text.value !== undefined) obj.text = mutation.text.value;
-            if (mutation.text.fontSize !== undefined) obj.fontSize = Math.min(Math.max(mutation.text.fontSize, 8), 200);
-            if (mutation.text.color !== undefined) obj.fill = mutation.text.color;
-            if (mutation.text.fontFamily !== undefined) obj.fontFamily = mutation.text.fontFamily;
-            if (mutation.text.align !== undefined) obj.textAlign = mutation.text.align;
-            if (mutation.text.bold !== undefined) obj.fontWeight = mutation.text.bold ? 'bold' : 'normal';
-            if (mutation.text.italic !== undefined) obj.fontStyle = mutation.text.italic ? 'italic' : 'normal';
-            if (mutation.text.underline !== undefined) obj.underline = mutation.text.underline;
-          }
+        // Update text value if provided
+        if (textUpdates[textKey]) {
+          obj.text = textUpdates[textKey];
+          console.info(`Updated ${textKey} with value:`, textUpdates[textKey]);
+        }
+        
+        textIndex++;
+      }
+    }
+
+    // Apply legacy mutations if provided
+    if (body.mutations && body.mutations.length > 0) {
+      for (const mutation of body.mutations) {
+        const objects = sceneData.objects || [];
+        
+        for (const obj of objects) {
+          // Check if this object matches the selector
+          const matchesId = mutation.selector.id && obj.id === mutation.selector.id;
+          const matchesName = mutation.selector.name && obj.name === mutation.selector.name;
           
-          // Apply position mutations
-          if (mutation.position) {
-            if (mutation.position.x !== undefined) obj.left = Math.max(0, mutation.position.x);
-            if (mutation.position.y !== undefined) obj.top = Math.max(0, mutation.position.y);
-            if (mutation.position.width !== undefined) obj.width = Math.max(1, mutation.position.width);
-            if (mutation.position.height !== undefined) obj.height = Math.max(1, mutation.position.height);
-          }
-          
-          // Apply shape mutations
-          if (mutation.shape && (obj.type === 'rect' || obj.type === 'circle')) {
-            if (mutation.shape.fill !== undefined) obj.fill = mutation.shape.fill;
-            if (mutation.shape.stroke !== undefined) obj.stroke = mutation.shape.stroke;
-            if (mutation.shape.strokeWidth !== undefined) obj.strokeWidth = Math.max(0, mutation.shape.strokeWidth);
-            if (mutation.shape.radius !== undefined && obj.type === 'circle') obj.radius = Math.max(1, mutation.shape.radius);
+          if (matchesId || matchesName) {
+            // Apply text mutations
+            if (mutation.text && obj.type === 'text') {
+              if (mutation.text.value !== undefined) obj.text = mutation.text.value;
+              if (mutation.text.fontSize !== undefined) obj.fontSize = Math.min(Math.max(mutation.text.fontSize, 8), 200);
+              if (mutation.text.color !== undefined) obj.fill = mutation.text.color;
+              if (mutation.text.fontFamily !== undefined) obj.fontFamily = mutation.text.fontFamily;
+              if (mutation.text.align !== undefined) obj.textAlign = mutation.text.align;
+              if (mutation.text.bold !== undefined) obj.fontWeight = mutation.text.bold ? 'bold' : 'normal';
+              if (mutation.text.italic !== undefined) obj.fontStyle = mutation.text.italic ? 'italic' : 'normal';
+              if (mutation.text.underline !== undefined) obj.underline = mutation.text.underline;
+            }
+            
+            // Apply position mutations
+            if (mutation.position) {
+              if (mutation.position.x !== undefined) obj.left = Math.max(0, mutation.position.x);
+              if (mutation.position.y !== undefined) obj.top = Math.max(0, mutation.position.y);
+              if (mutation.position.width !== undefined) obj.width = Math.max(1, mutation.position.width);
+              if (mutation.position.height !== undefined) obj.height = Math.max(1, mutation.position.height);
+            }
+            
+            // Apply shape mutations
+            if (mutation.shape && (obj.type === 'rect' || obj.type === 'circle')) {
+              if (mutation.shape.fill !== undefined) obj.fill = mutation.shape.fill;
+              if (mutation.shape.stroke !== undefined) obj.stroke = mutation.shape.stroke;
+              if (mutation.shape.strokeWidth !== undefined) obj.strokeWidth = Math.max(0, mutation.shape.strokeWidth);
+              if (mutation.shape.radius !== undefined && obj.type === 'circle') obj.radius = Math.max(1, mutation.shape.radius);
+            }
           }
         }
       }
     }
 
-    // Generate render ID for new mutations
-    const renderId = `mut_${crypto.randomUUID()}`;
+    // Generate SVG from scene data
+    let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600">`;
+    svgContent += `<rect width="800" height="600" fill="white"/>`;
     
-    // Apply mutations to base edited image if needed
-    // For now, return the base edited image URL since we can't process mutations server-side
-    let finalImageUrl = template.edited_image_url;
-    
-    if (!finalImageUrl) {
-      // Fallback to generating a placeholder if no edited image exists
-      finalImageUrl = `${supabaseUrl}/storage/v1/object/public/exports/placeholder.png`;
+    for (const obj of sceneData.objects || []) {
+      if (obj.type === 'text') {
+        const x = obj.left || 0;
+        const y = (obj.top || 0) + (obj.fontSize || 20);
+        const fontSize = obj.fontSize || 20;
+        const fill = obj.fill || '#000000';
+        const fontFamily = obj.fontFamily || 'Arial';
+        const fontWeight = obj.fontWeight || 'normal';
+        const fontStyle = obj.fontStyle || 'normal';
+        const textDecoration = obj.underline ? 'underline' : 'none';
+        
+        svgContent += `<text x="${x}" y="${y}" fill="${fill}" font-family="${fontFamily}" font-size="${fontSize}" font-weight="${fontWeight}" font-style="${fontStyle}" text-decoration="${textDecoration}">${obj.text || ''}</text>`;
+      }
     }
+    svgContent += `</svg>`;
+
+    const svgBlob = new Blob([svgContent], { type: 'image/svg+xml' });
+    console.info(`Generated image blob: type=${svgBlob.type}, size=${svgBlob.size}, extension=svg`);
+
+    // Try to convert SVG to PNG using external services
+    const pngServices = [
+      'https://htmlcsstoimage.com/demo_run',
+      'https://api.screenshotone.com/take', 
+      'https://api.urlbox.io/v1/render/sync'
+    ];
+
+    let pngBlob: Blob | null = null;
+
+    for (const serviceUrl of pngServices) {
+      try {
+        console.info(`Trying PNG conversion service: ${serviceUrl}`);
+        
+        const response = await fetch(serviceUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            html: `<html><body style="margin:0;padding:0;">${svgContent}</body></html>`,
+            css: '',
+            width: 800,
+            height: 600,
+            format: 'png'
+          })
+        });
+
+        if (response.ok) {
+          const buffer = await response.arrayBuffer();
+          if (buffer.byteLength > 0) {
+            pngBlob = new Blob([buffer], { type: 'image/png' });
+            console.info(`Successfully converted to PNG using ${serviceUrl}: ${pngBlob.size} bytes`);
+            break;
+          }
+        }
+        console.info(`Service ${serviceUrl} failed or returned empty response`);
+      } catch (error) {
+        console.info(`Service ${serviceUrl} failed:`, error);
+      }
+    }
+
+    // Fallback: Create a simple PNG if all services fail
+    if (!pngBlob) {
+      console.info('All external services failed, creating fallback PNG');
+      const canvas = new OffscreenCanvas(800, 600);
+      const ctx = canvas.getContext('2d');
+      
+      if (ctx) {
+        // Fill white background
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, 800, 600);
+        
+        // Add text elements
+        for (const obj of sceneData.objects || []) {
+          if (obj.type === 'text') {
+            const x = obj.left || 0;
+            const y = obj.top || 0;
+            const fontSize = obj.fontSize || 20;
+            const fill = obj.fill || '#000000';
+            const fontFamily = obj.fontFamily || 'Arial';
+            const fontWeight = obj.fontWeight || 'normal';
+            
+            ctx.fillStyle = fill;
+            ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+            ctx.fillText(obj.text || '', x, y + fontSize);
+          }
+        }
+        
+        pngBlob = await canvas.convertToBlob({ type: 'image/png' });
+        console.info(`Generated PNG blob: type=${pngBlob.type}, size=${pngBlob.size}`);
+      }
+    }
+
+    // Upload the rendered image to Supabase storage
+    const renderId = crypto.randomUUID();
+    const imagePath = `api-renders/${user.id}/${renderId}.png`;
+    
+    const { error: uploadError } = await supabase.storage
+      .from('exports')
+      .upload(imagePath, pngBlob || svgBlob, {
+        contentType: pngBlob ? 'image/png' : 'image/svg+xml',
+        cacheControl: '3600'
+      });
+
+    if (uploadError) {
+      console.error('Upload error:', uploadError);
+      return new Response(JSON.stringify({ error: 'Failed to upload rendered image' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const imageUrl = `${supabaseUrl}/storage/v1/object/public/exports/${imagePath}`;
 
     // Record API usage
     await supabase
@@ -220,9 +360,10 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({
       status: 'ok',
-      imageUrl: finalImageUrl,
+      imageUrl: imageUrl,
       renderId: renderId,
-      message: 'Returning edited template image'
+      format: pngBlob ? 'png' : 'svg',
+      message: `Successfully rendered ${pngBlob ? 'PNG' : 'SVG'} image with ${Object.keys(textUpdates).length} text updates`
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
