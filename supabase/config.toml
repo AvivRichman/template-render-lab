@@ -1,1 +1,13 @@
 project_id = "nracebwmywbyuywhucwo"
+
+[functions.api-generate]
+verify_jwt = false
+
+[functions.api-templates]
+verify_jwt = false
+
+[functions.api-usage]
+verify_jwt = false
+
+[functions.render]
+verify_jwt = false
