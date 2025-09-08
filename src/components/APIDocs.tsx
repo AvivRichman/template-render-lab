@@ -68,12 +68,13 @@ export const APIDocs = () => {
     
     console.log('Template scene_data objects:', template.scene_data.objects);
     
-    // Filter text objects - check multiple possible conditions
+    // Filter text objects - check multiple possible conditions (case-insensitive)
     const textObjects = template.scene_data.objects.filter((obj: any) => {
+      const objType = obj.type?.toLowerCase();
       // Check if it's a text object by type or if it has text content
-      return obj.type === 'text' || 
-             obj.type === 'textbox' || 
-             obj.type === 'i-text' ||
+      return objType === 'text' || 
+             objType === 'textbox' || 
+             objType === 'i-text' ||
              obj.text !== undefined ||
              obj.value !== undefined ||
              (obj.type === undefined && (obj.text || obj.value));

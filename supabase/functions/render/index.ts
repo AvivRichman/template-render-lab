@@ -241,15 +241,16 @@ serve(async (req) => {
     if (Object.keys(textParams).length > 0) {
       const objects = sceneData.objects || [];
       
-      // Get all text-like objects (check multiple conditions)
-      const textObjects = objects.filter(obj => 
-        obj.type === 'text' || 
-        obj.type === 'textbox' || 
-        obj.type === 'i-text' ||
-        obj.text !== undefined ||
-        obj.value !== undefined ||
-        (obj.type === undefined && (obj.text || obj.value))
-      );
+      // Get all text-like objects (check multiple conditions, case-insensitive)
+      const textObjects = objects.filter(obj => {
+        const objType = obj.type?.toLowerCase();
+        return objType === 'text' || 
+               objType === 'textbox' || 
+               objType === 'i-text' ||
+               obj.text !== undefined ||
+               obj.value !== undefined ||
+               (obj.type === undefined && (obj.text || obj.value));
+      });
       
       console.log('Found text objects for modification:', textObjects.length);
       
