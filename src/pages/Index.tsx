@@ -12,8 +12,7 @@ import {
   Globe,
   Sparkles,
   LogOut,
-  User,
-  ExternalLink
+  User
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { ImageEditor } from "@/components/ImageEditor";
@@ -89,14 +88,6 @@ const Index = () => {
             </div>
             <div className="flex items-center gap-3">
               <Badge variant="outline">Free Plan</Badge>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={() => navigate("/api-docs")}
-              >
-                <ExternalLink className="h-4 w-4 mr-2" />
-                API Docs
-              </Button>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <User className="h-4 w-4" />
                 {user.email}
