@@ -233,10 +233,17 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
       const response = await fetch(dataURL);
       const blob = await response.blob();
       
-      // Upload to Supabase storage
+      // Get current user for folder structure
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+      
+      // Upload to Supabase storage with user ID folder structure
+      const filePath = `${user.id}/${Date.now()}-${filename}`;
       const { data, error } = await supabase.storage
         .from('exports')
-        .upload(`templates/${Date.now()}-${filename}`, blob, {
+        .upload(filePath, blob, {
           cacheControl: '3600',
           upsert: false,
         });
