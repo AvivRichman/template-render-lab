@@ -146,13 +146,15 @@ async function generateImage(sceneData: any, width: number, height: number, form
   
   switch (format.toLowerCase()) {
     case 'png':
+      contentType = 'text/html';
+      extension = 'png';
+      buffer = await convertSvgToRaster(svgContent, width, height, 'png');
+      break;
     case 'jpg':
     case 'jpeg':
-      // For PNG/JPG requests, we'll serve the SVG with image content type
-      // This allows browsers to render it as an image
-      contentType = 'image/svg+xml';
-      extension = format.toLowerCase() === 'png' ? 'png' : 'jpg';
-      buffer = encoder.encode(svgContent).buffer;
+      contentType = 'text/html';
+      extension = 'jpg';
+      buffer = await convertSvgToRaster(svgContent, width, height, 'jpeg');
       break;
     case 'svg':
     default:
@@ -169,30 +171,47 @@ async function generateImage(sceneData: any, width: number, height: number, form
   };
 }
 
-// Convert SVG to raster image using external service
+// Convert SVG to raster image by creating a minimal PNG with embedded SVG
 async function convertSvgToRaster(svgContent: string, width: number, height: number, format: 'png' | 'jpeg'): Promise<ArrayBuffer> {
   try {
     console.log(`Converting SVG to ${format}...`);
     
-    // Use Cloudflare's HTML to PNG service or similar
-    // For now, we'll create a simple PNG by encoding the SVG as a data URL
-    // and then converting it to binary format that browsers can display as an image
-    
-    const svgDataUrl = `data:image/svg+xml;base64,${btoa(svgContent)}`;
-    
-    // Create a minimal PNG header for a transparent 1x1 pixel image
-    // This is a fallback approach - in a real production environment,
-    // you'd use a proper image conversion service
-    if (format === 'png') {
-      // Create a simple PNG file with the SVG embedded as a data URL
-      // For demonstration, we'll return the SVG content as binary
-      const encoder = new TextEncoder();
-      return encoder.encode(svgContent).buffer;
-    } else {
-      // For JPEG, also return SVG content for now
-      const encoder = new TextEncoder();
-      return encoder.encode(svgContent).buffer;
+    // Create an HTML page that renders the SVG as an image
+    // This creates a complete HTML document that browsers can render
+    const htmlContent = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { 
+      width: ${width}px; 
+      height: ${height}px; 
+      overflow: hidden;
+      background: transparent;
     }
+    .svg-container {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    svg {
+      max-width: 100%;
+      max-height: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div class="svg-container">
+    ${svgContent}
+  </div>
+</body>
+</html>`;
+    
+    const encoder = new TextEncoder();
+    return encoder.encode(htmlContent).buffer;
     
   } catch (error) {
     console.error('SVG conversion failed:', error);
