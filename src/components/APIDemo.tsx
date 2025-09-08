@@ -21,7 +21,7 @@ export const APIDemo = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [templateId, setTemplateId] = useState("template_123");
-  const [textOverrides, setTextOverrides] = useState('{"text1": "New Title", "text2": "Updated subtitle", "text3": "Custom text"}');
+  const [textOverrides, setTextOverrides] = useState('{"title": "New Title", "subtitle": "Updated subtitle"}');
   const [response, setResponse] = useState<string>("");
   
   // Mock API usage
@@ -37,11 +37,13 @@ export const APIDemo = () => {
     // Simulate API call
     setTimeout(() => {
       const mockResponse = {
-        status: "ok",
-        imageUrl: `https://nracebwmywbyuywhucwo.supabase.co/storage/v1/object/public/exports/api-renders/user-123/${crypto.randomUUID()}.png`,
-        renderId: crypto.randomUUID(),
-        format: "png",
-        message: "Successfully rendered PNG image with 3 text updates"
+        success: true,
+        image_url: "https://example.com/generated-image-123.png",
+        template_id: templateId,
+        generation_time: "1.2s",
+        usage: {
+          calls_remaining: apiUsage.limit - apiUsage.current - 1
+        }
       };
       
       setResponse(JSON.stringify(mockResponse, null, 2));
@@ -55,32 +57,28 @@ export const APIDemo = () => {
     toast("Copied to clipboard!");
   };
 
-  const curlExample = `curl -X POST https://nracebwmywbyuywhucwo.supabase.co/functions/v1/render \\
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \\
+  const curlExample = `curl -X POST https://api.imageeditorpro.com/v1/generate \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "templateId": "${templateId}",
-    "text1": "New Title",
-    "text2": "Updated subtitle", 
-    "text3": "Custom text"
+    "template_id": "${templateId}",
+    "overrides": ${textOverrides}
   }'`;
 
-  const jsExample = `const response = await fetch('https://nracebwmywbyuywhucwo.supabase.co/functions/v1/render', {
+  const jsExample = `const response = await fetch('https://api.imageeditorpro.com/v1/generate', {
   method: 'POST',
   headers: {
-    'Authorization': 'Bearer YOUR_JWT_TOKEN',
+    'Authorization': 'Bearer YOUR_API_KEY',
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
-    templateId: '${templateId}',
-    text1: 'New Title',
-    text2: 'Updated subtitle',
-    text3: 'Custom text'
+    template_id: '${templateId}',
+    overrides: ${textOverrides}
   })
 });
 
 const data = await response.json();
-console.log(data.imageUrl); // PNG image URL`;
+console.log(data.image_url);`;
 
   return (
     <div className="space-y-6">
@@ -145,18 +143,15 @@ console.log(data.imageUrl); // PNG image URL`;
             </div>
             
             <div>
-              <Label htmlFor="overrides">Text Elements (JSON)</Label>
+              <Label htmlFor="overrides">Text Overrides (JSON)</Label>
               <Textarea
                 id="overrides"
                 rows={4}
-                placeholder='{"text1": "New Title", "text2": "Subtitle"}'
+                placeholder='{"title": "New Title"}'
                 value={textOverrides}
                 onChange={(e) => setTextOverrides(e.target.value)}
                 className="font-mono text-sm"
               />
-              <p className="text-xs text-muted-foreground mt-1">
-                Use text1, text2, text3... to edit elements sequentially
-              </p>
             </div>
             
             <Button 
@@ -246,10 +241,7 @@ console.log(data.imageUrl); // PNG image URL`;
           <div>
             <h4 className="font-medium text-sm mb-2">Authentication</h4>
             <p className="text-sm text-muted-foreground">
-              Include your JWT token in the Authorization header: <code className="bg-[hsl(var(--editor-background))] px-1 py-0.5 rounded text-xs">Bearer YOUR_JWT_TOKEN</code>
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Get your JWT token from Supabase authentication
+              Include your API key in the Authorization header: <code className="bg-[hsl(var(--editor-background))] px-1 py-0.5 rounded text-xs">Bearer YOUR_API_KEY</code>
             </p>
           </div>
           
@@ -260,12 +252,15 @@ console.log(data.imageUrl); // PNG image URL`;
             <div className="space-y-2 text-sm">
               <div className="flex items-center gap-2">
                 <Badge variant="outline">POST</Badge>
-                <code>/functions/v1/render</code> - Render image with text edits
+                <code>/v1/generate</code> - Generate image from template
               </div>
-              <div className="space-y-1 ml-6 text-xs text-muted-foreground">
-                <p>• Edit text elements using text1, text2, text3... parameters</p>
-                <p>• Returns PNG image URL with your changes applied</p>
-                <p>• Requires JWT authentication token from Supabase</p>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline">GET</Badge>
+                <code>/v1/templates</code> - List your templates
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline">GET</Badge>
+                <code>/v1/usage</code> - Check API usage
               </div>
             </div>
           </div>
