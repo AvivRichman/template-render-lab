@@ -53,21 +53,22 @@ serve(async (req) => {
       throw new Error(`Failed to upload image: ${uploadError.message}`);
     }
     
-    // Get public URL
+    // Get public URL and add image transformation to convert SVG to JPG
     const { data: urlData } = supabase.storage
       .from('api-renders')
       .getPublicUrl(imagePath);
     
-    const mockImageUrl = urlData.publicUrl;
+    // Add Supabase Storage Image Transformation to convert SVG to JPG
+    const jpgImageUrl = `${urlData.publicUrl}?format=jpg&quality=90`;
 
-    console.log('Generated image URL:', mockImageUrl);
+    console.log('Generated image URL:', jpgImageUrl);
 
     return new Response(JSON.stringify({
       success: true,
-      image_url: mockImageUrl,
+      image_url: jpgImageUrl,
       template_id,
       generation_time: '1.2s',
-      message: 'Image rendered successfully'
+      message: 'Image rendered successfully as JPG'
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
