@@ -1,11 +1,23 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.2';
-import { Resvg } from 'https://esm.sh/@resvg/resvg-js@2.4.1';
+import { initWasm, Resvg } from 'https://esm.sh/@resvg/resvg-wasm@2.4.1';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// Initialize WASM once
+let wasmInitialized = false;
+
+async function ensureWasmInitialized() {
+  if (!wasmInitialized) {
+    console.log('Initializing WASM...');
+    await initWasm(fetch('https://esm.sh/@resvg/resvg-wasm@2.4.1/resvg.wasm'));
+    wasmInitialized = true;
+    console.log('WASM initialized successfully');
+  }
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -14,6 +26,9 @@ serve(async (req) => {
 
   try {
     console.log('Render function - Request received');
+    
+    // Initialize WASM first
+    await ensureWasmInitialized();
     
     const { template_id, scene_data, user_id } = await req.json();
     
@@ -117,7 +132,7 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     console.log('Generated SVG length:', svg.length);
     console.log('SVG preview:', svg.substring(0, 500) + '...');
     
-    // Convert SVG to PNG using resvg
+    // Convert SVG to PNG using resvg WASM
     console.log('Converting SVG to PNG...');
     const resvg = new Resvg(svg, {
       background: backgroundColor,
