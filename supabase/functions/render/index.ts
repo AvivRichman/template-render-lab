@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.2';
+import init, { Resvg } from "https://esm.sh/@resvg/resvg-wasm@2.6.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -33,18 +34,21 @@ serve(async (req) => {
 
     console.log('Generating image...');
     
+    // Initialize Resvg WASM
+    await init();
+    
     // Generate SVG from template scene data
     const timestamp = Date.now();
-    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.svg`;
+    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.png`;
     
-    // Create SVG from scene data
+    // Create PNG from scene data using Resvg
     const imageBuffer = await generateImageFromSceneData(scene_data);
     
-    // Upload to storage as SVG (browsers can display SVG directly)
+    // Upload to storage as PNG
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('api-renders')
       .upload(imagePath, imageBuffer, {
-        contentType: 'image/svg+xml',
+        contentType: 'image/png',
         upsert: true
       });
     
@@ -81,7 +85,7 @@ serve(async (req) => {
   }
 });
 
-// Generate SVG from scene data and return it as bytes for upload
+// Generate PNG from scene data using Resvg WASM
 async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
   try {
     console.log('Scene data received for rendering');
@@ -116,13 +120,28 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     console.log('Generated SVG length:', svg.length);
     console.log('SVG preview:', svg.substring(0, 500) + '...');
     
-    // Instead of converting to PNG (which is complex in Deno), 
-    // return the SVG as bytes - browsers can display SVG files directly
-    return new TextEncoder().encode(svg);
+    // Convert SVG to PNG using Resvg WASM
+    console.log('Converting SVG to PNG using Resvg...');
+    const resvg = new Resvg(svg, {
+      background: backgroundColor,
+      fitTo: {
+        mode: 'width',
+        value: width,
+      },
+      font: {
+        loadSystemFonts: false, // Don't try to load system fonts in Deno
+      },
+    });
+    
+    const pngData = resvg.render();
+    const pngBuffer = pngData.asPng();
+    
+    console.log('PNG conversion successful, size:', pngBuffer.length, 'bytes');
+    return pngBuffer;
     
   } catch (error) {
     console.error('Error generating image from scene data:', error);
-    return createFallbackSVG();
+    return createFallbackPNG();
   }
 }
 
@@ -302,9 +321,9 @@ function escapeXml(unsafe: string): string {
   });
 }
 
-// Create a simple fallback SVG for errors
-function createFallbackSVG(): Uint8Array {
-  console.log('Creating fallback SVG');
+// Create a simple fallback PNG for errors
+function createFallbackPNG(): Uint8Array {
+  console.log('Creating fallback PNG');
   
   const fallbackSVG = `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
     <rect width="100%" height="100%" fill="#f8f9fa"/>
@@ -313,5 +332,20 @@ function createFallbackSVG(): Uint8Array {
     </text>
   </svg>`;
   
-  return new TextEncoder().encode(fallbackSVG);
+  try {
+    const resvg = new Resvg(fallbackSVG, {
+      background: '#f8f9fa',
+      fitTo: {
+        mode: 'width',
+        value: 400,
+      },
+    });
+    
+    const pngData = resvg.render();
+    return pngData.asPng();
+  } catch (error) {
+    console.error('Error creating fallback PNG:', error);
+    // Return a minimal PNG header if even fallback fails
+    return new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+  }
 }
