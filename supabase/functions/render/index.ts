@@ -127,7 +127,9 @@ function renderObjectToSVG(obj: any): string {
   let svg = '';
   
   try {
-    switch (obj.type) {
+    const objectType = obj.type?.toLowerCase();
+    
+    switch (objectType) {
       case 'textbox':
       case 'text':
         const x = obj.left || 0;
@@ -137,47 +139,112 @@ function renderObjectToSVG(obj: any): string {
         const fontFamily = obj.fontFamily || 'Arial';
         const text = obj.text || '';
         
-        svg += `<text x="${x}" y="${y}" font-family="${fontFamily}" font-size="${fontSize}" fill="${fill}">${text}</text>`;
+        // Handle text scaling if present
+        const scaleX = obj.scaleX || 1;
+        const scaleY = obj.scaleY || 1;
+        const scaledFontSize = fontSize * Math.max(scaleX, scaleY);
+        
+        svg += `<text x="${x}" y="${y}" font-family="${fontFamily}" font-size="${scaledFontSize}" fill="${fill}"`;
+        
+        // Add rotation if present
+        if (obj.angle) {
+          const centerX = x + (obj.width || 0) * scaleX / 2;
+          const centerY = y - (obj.height || 0) * scaleY / 2;
+          svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
+        }
+        
+        svg += `>${escapeXml(text)}</text>`;
         break;
         
       case 'rect':
+      case 'rectangle':
         const rectX = obj.left || 0;
         const rectY = obj.top || 0;
-        const rectWidth = obj.width || 100;
-        const rectHeight = obj.height || 100;
+        const rectWidth = (obj.width || 100) * (obj.scaleX || 1);
+        const rectHeight = (obj.height || 100) * (obj.scaleY || 1);
         const rectFill = obj.fill || '#000000';
+        const rectStroke = obj.stroke || 'none';
+        const rectStrokeWidth = obj.strokeWidth || 0;
         
-        svg += `<rect x="${rectX}" y="${rectY}" width="${rectWidth}" height="${rectHeight}" fill="${rectFill}"/>`;
+        svg += `<rect x="${rectX}" y="${rectY}" width="${rectWidth}" height="${rectHeight}" fill="${rectFill}" stroke="${rectStroke}" stroke-width="${rectStrokeWidth}"`;
+        
+        if (obj.angle) {
+          const centerX = rectX + rectWidth / 2;
+          const centerY = rectY + rectHeight / 2;
+          svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
+        }
+        
+        svg += `/>`;
         break;
         
       case 'circle':
-        const circleX = (obj.left || 0) + (obj.radius || 50);
-        const circleY = (obj.top || 0) + (obj.radius || 50);
-        const radius = obj.radius || 50;
+        const circleX = (obj.left || 0) + (obj.radius || 50) * (obj.scaleX || 1);
+        const circleY = (obj.top || 0) + (obj.radius || 50) * (obj.scaleY || 1);
+        const radius = (obj.radius || 50) * Math.max(obj.scaleX || 1, obj.scaleY || 1);
         const circleFill = obj.fill || '#000000';
+        const circleStroke = obj.stroke || 'none';
+        const circleStrokeWidth = obj.strokeWidth || 0;
         
-        svg += `<circle cx="${circleX}" cy="${circleY}" r="${radius}" fill="${circleFill}"/>`;
+        svg += `<circle cx="${circleX}" cy="${circleY}" r="${radius}" fill="${circleFill}" stroke="${circleStroke}" stroke-width="${circleStrokeWidth}"`;
+        
+        if (obj.angle) {
+          svg += ` transform="rotate(${obj.angle} ${circleX} ${circleY})"`;
+        }
+        
+        svg += `/>`;
         break;
         
       case 'image':
         if (obj.src) {
           const imgX = obj.left || 0;
           const imgY = obj.top || 0;
-          const imgWidth = obj.width || 100;
-          const imgHeight = obj.height || 100;
+          const imgWidth = (obj.width || 100) * (obj.scaleX || 1);
+          const imgHeight = (obj.height || 100) * (obj.scaleY || 1);
           
-          svg += `<image x="${imgX}" y="${imgY}" width="${imgWidth}" height="${imgHeight}" href="${obj.src}"/>`;
+          svg += `<image x="${imgX}" y="${imgY}" width="${imgWidth}" height="${imgHeight}" href="${obj.src}"`;
+          
+          if (obj.angle) {
+            const centerX = imgX + imgWidth / 2;
+            const centerY = imgY + imgHeight / 2;
+            svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
+          }
+          
+          svg += `/>`;
         }
         break;
         
       default:
         console.log('Unknown object type:', obj.type);
+        // Try to render as a generic shape if it has basic properties
+        if (obj.left !== undefined && obj.top !== undefined) {
+          const genX = obj.left || 0;
+          const genY = obj.top || 0;
+          const genWidth = (obj.width || 50) * (obj.scaleX || 1);
+          const genHeight = (obj.height || 50) * (obj.scaleY || 1);
+          const genFill = obj.fill || '#cccccc';
+          
+          svg += `<rect x="${genX}" y="${genY}" width="${genWidth}" height="${genHeight}" fill="${genFill}"/>`;
+        }
     }
   } catch (error) {
     console.error('Error rendering object to SVG:', error);
   }
   
   return svg;
+}
+
+// Helper function to escape XML special characters
+function escapeXml(unsafe: string): string {
+  return unsafe.replace(/[<>&'"]/g, function (c) {
+    switch (c) {
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '&': return '&amp;';
+      case '\'': return '&apos;';
+      case '"': return '&quot;';
+      default: return c;
+    }
+  });
 }
 
 // Create a PNG from SVG (simplified approach)
