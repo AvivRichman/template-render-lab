@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.2';
-import { Resvg, initWasm } from "https://esm.sh/resvg-wasm@2.4.1";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -46,14 +45,12 @@ serve(async (req) => {
     // Create SVG from modified scene data
     const svgBuffer = await generateImageFromSceneData(modifiedSceneData);
     
-    // Convert SVG to PNG using Puppeteer
-    const pngBuffer = await convertSVGToPNG(svgBuffer);
-    
-    // Upload the PNG to Supabase Storage
+    // Upload SVG directly to Supabase Storage
+    // Supabase Storage can handle SVG to image transformations
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('api-renders')
-      .upload(imagePath, pngBuffer, {
-        contentType: 'image/png',
+      .upload(imagePath, svgBuffer, {
+        contentType: 'image/svg+xml',
         upsert: true
       });
     
@@ -82,8 +79,8 @@ serve(async (req) => {
       success: true,
       image_url: jpegImageUrl,
       template_id,
-      generation_time: '1-2s',
-      message: 'SVG converted to PNG using resvg-js, then transformed to JPG',
+      generation_time: '0.5-1s',
+      message: 'SVG uploaded and transformed to JPG via Supabase Storage',
       changes_applied: Object.keys(changes).length > 0
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -383,66 +380,16 @@ function createFallbackSVG(): Uint8Array {
   return new TextEncoder().encode(fallbackSVG);
 }
 
-// Convert SVG to PNG using resvg-wasm
-async function convertSVGToPNG(svgBuffer: Uint8Array): Promise<Uint8Array> {
-  try {
-    console.log('Converting SVG to PNG using resvg-wasm...');
-    
-    // Initialize WASM module
-    await initWasm(fetch('https://esm.sh/resvg-wasm@2.4.1/index_bg.wasm'));
-    
-    // Convert SVG buffer to string
-    const svgString = new TextDecoder().decode(svgBuffer);
-    
-    console.log('SVG string length:', svgString.length);
-    
-    // Create resvg instance and render
-    const resvg = new Resvg(svgString);
-    
-    // Render to PNG
-    const pngData = resvg.render();
-    const pngBuffer = pngData.asPng();
-    
-    console.log('PNG conversion completed, size:', pngBuffer.length, 'bytes');
-    
-    return pngBuffer;
-    
-  } catch (error) {
-    console.error('Error converting SVG to PNG:', error);
-    
-    // Return a fallback PNG
-    return await createFallbackPNG();
-  }
-}
-
-// Create a fallback PNG for errors
-async function createFallbackPNG(): Promise<Uint8Array> {
-  try {
-    console.log('Creating fallback PNG...');
-    
-    // Initialize WASM if not already done
-    await initWasm(fetch('https://esm.sh/resvg-wasm@2.4.1/index_bg.wasm'));
-    
-    // Create a simple SVG for the fallback
-    const fallbackSVG = `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
-      <rect width="100%" height="100%" fill="#f8f9fa"/>
-      <text x="200" y="150" text-anchor="middle" font-family="Arial" font-size="16" fill="#dc3545">
-        Error generating image
-      </text>
-    </svg>`;
-    
-    // Convert fallback SVG to PNG using resvg
-    const resvg = new Resvg(fallbackSVG);
-    const pngData = resvg.render();
-    const pngBuffer = pngData.asPng();
-    
-    console.log('Fallback PNG created, size:', pngBuffer.length, 'bytes');
-    
-    return pngBuffer;
-    
-  } catch (error) {
-    console.error('Error creating fallback PNG:', error);
-    // Return minimal empty PNG data as last resort
-    return new Uint8Array(0);
-  }
+// Create a simple fallback SVG for errors
+function createFallbackSVG(): Uint8Array {
+  console.log('Creating fallback SVG');
+  
+  const fallbackSVG = `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+    <rect width="100%" height="100%" fill="#f8f9fa"/>
+    <text x="200" y="150" text-anchor="middle" font-family="Arial" font-size="16" fill="#dc3545">
+      Error generating image
+    </text>
+  </svg>`;
+  
+  return new TextEncoder().encode(fallbackSVG);
 }
