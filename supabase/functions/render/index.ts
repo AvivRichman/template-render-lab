@@ -21,7 +21,8 @@ serve(async (req) => {
     }
     
     // Handle original render requests (POST with JSON body)
-    const { template_id, scene_data, user_id } = await req.json();
+    const requestBody = await req.json();
+    const { template_id, scene_data, user_id, format = 'jpg', width, height, quality, resize, bg } = requestBody;
     
     if (!template_id || !scene_data || !user_id) {
       return new Response(JSON.stringify({ error: 'Missing required fields' }), {
@@ -60,12 +61,21 @@ serve(async (req) => {
       throw new Error(`Failed to upload image: ${uploadError.message}`);
     }
     
-    // Parse transformation parameters from request body or URL
-    const format = url.searchParams.get('format') || 'svg';
+    // Parse transformation parameters from request body 
+    const finalFormat = format || 'jpg';
+    
+    // Create search params for transform functions
+    const transformParams = new URLSearchParams();
+    if (finalFormat !== 'svg') transformParams.set('format', finalFormat);
+    if (width) transformParams.set('width', width.toString());
+    if (height) transformParams.set('height', height.toString());
+    if (quality) transformParams.set('quality', quality.toString());
+    if (resize) transformParams.set('resize', resize);
+    if (bg) transformParams.set('bg', bg);
     
     let finalUrl: string;
     
-    if (format === 'svg') {
+    if (finalFormat === 'svg') {
       // Return SVG URL directly
       const { data: urlData } = supabase.storage
         .from('api-renders')
@@ -73,7 +83,7 @@ serve(async (req) => {
       finalUrl = urlData.publicUrl;
     } else {
       // Generate transformed URL for PNG/JPG
-      finalUrl = getTransformedUrl(supabase, imagePath, url.searchParams);
+      finalUrl = getTransformedUrl(supabase, imagePath, transformParams);
     }
 
     console.log('Generated image URL:', finalUrl);
@@ -83,7 +93,7 @@ serve(async (req) => {
       image_url: finalUrl,
       template_id,
       generation_time: '1.2s',
-      message: `Image rendered successfully as ${format.toUpperCase()}`
+      message: `Image rendered successfully as ${finalFormat.toUpperCase()}`
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
