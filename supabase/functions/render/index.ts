@@ -33,18 +33,18 @@ serve(async (req) => {
 
     console.log('Generating image...');
     
-    // Generate JPEG from template scene data
+    // Generate SVG from template scene data
     const timestamp = Date.now();
-    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.ppm`;
+    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.svg`;
     
-    // Create JPEG from scene data
+    // Create SVG from scene data
     const imageBuffer = await generateImageFromSceneData(scene_data);
     
-    // Upload to storage as JPEG
+    // Upload to storage as SVG (browsers can display SVG directly)
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('api-renders')
       .upload(imagePath, imageBuffer, {
-        contentType: 'image/ppm',
+        contentType: 'image/svg+xml',
         upsert: true
       });
     
@@ -81,11 +81,11 @@ serve(async (req) => {
   }
 });
 
-// Generate JPEG from scene data using canvas-based rendering
+// Generate SVG from scene data and return it as bytes for upload
 async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
   try {
     console.log('Scene data received for rendering');
-    console.log('Full scene data:', JSON.stringify(sceneData, null, 2));
+    console.log('Scene data objects count:', sceneData.objects?.length || 0);
     
     // Extract canvas dimensions from scene data
     const width = sceneData.width || 800;
@@ -94,368 +94,224 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     
     console.log(`Canvas dimensions: ${width}x${height}, background: ${backgroundColor}`);
     
-    // First generate SVG to compare
-    const svgContent = generateSVGFromSceneData(sceneData);
-    console.log('Generated SVG content:', svgContent);
+    // Create SVG from scene data
+    let svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">`;
+    svg += `<rect width="100%" height="100%" fill="${backgroundColor}"/>`;
     
-    // Create a simple bitmap array (RGBA format)
-    const imageData = new Uint8ClampedArray(width * height * 4);
-    
-    // Fill with background color
-    const bgColor = hexToRgb(backgroundColor);
-    for (let i = 0; i < imageData.length; i += 4) {
-      imageData[i] = bgColor.r;     // Red
-      imageData[i + 1] = bgColor.g; // Green
-      imageData[i + 2] = bgColor.b; // Blue
-      imageData[i + 3] = 255;       // Alpha
-    }
-    
-    // Process objects and draw them to the image
+    // Process each object in the scene
     if (sceneData.objects && Array.isArray(sceneData.objects)) {
-      console.log('Processing', sceneData.objects.length, 'objects...');
+      console.log('Processing objects...');
       for (let i = 0; i < sceneData.objects.length; i++) {
         const obj = sceneData.objects[i];
-        console.log(`Processing object ${i}:`, JSON.stringify(obj, null, 2));
-        renderObjectToBitmap(imageData, width, height, obj);
+        console.log(`Processing object ${i}: type=${obj.type}, left=${obj.left}, top=${obj.top}`);
+        const objectSVG = renderObjectToSVG(obj);
+        if (objectSVG) {
+          svg += objectSVG;
+        }
       }
     }
     
-    // Convert to JPEG using a simple JPEG encoder
-    const jpegBuffer = await createJPEGFromImageData(imageData, width, height);
-    console.log('Generated JPEG size:', jpegBuffer.length, 'bytes');
+    svg += '</svg>';
     
-    return jpegBuffer;
+    console.log('Generated SVG length:', svg.length);
+    console.log('SVG preview:', svg.substring(0, 500) + '...');
+    
+    // Instead of converting to PNG (which is complex in Deno), 
+    // return the SVG as bytes - browsers can display SVG files directly
+    return new TextEncoder().encode(svg);
     
   } catch (error) {
     console.error('Error generating image from scene data:', error);
-    return await createFallbackJPEG();
+    return createFallbackSVG();
   }
 }
 
-// Generate SVG content from scene data for reference
-function generateSVGFromSceneData(sceneData: any): string {
-  const width = sceneData.width || 800;
-  const height = sceneData.height || 600;
-  const backgroundColor = sceneData.backgroundColor || '#ffffff';
+// Render a Fabric.js object to SVG
+function renderObjectToSVG(obj: any): string {
+  let svg = '';
   
-  let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">`;
-  svgContent += `<rect width="100%" height="100%" fill="${backgroundColor}"/>`;
-  
-  if (sceneData.objects && Array.isArray(sceneData.objects)) {
-    sceneData.objects.forEach((obj: any) => {
-      svgContent += renderObjectToSVG(obj);
-    });
-  }
-  
-  svgContent += '</svg>';
-  return svgContent;
-}
-
-// Helper to convert hex color to RGB
-function hexToRgb(hex: string): {r: number, g: number, b: number} {
-  if (!hex) return {r: 0, g: 0, b: 0};
-  
-  let color = hex.toString().replace('#', '');
-  
-  // Handle different color formats
-  if (hex.startsWith('rgb(')) {
-    const match = hex.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-    if (match) {
-      return {
-        r: parseInt(match[1]),
-        g: parseInt(match[2]), 
-        b: parseInt(match[3])
-      };
-    }
-  }
-  
-  // Convert 3-digit hex to 6-digit
-  if (color.length === 3) {
-    color = color.split('').map(c => c + c).join('');
-  }
-  
-  // Parse hex color
-  if (color.length === 6 && /^[0-9a-fA-F]+$/.test(color)) {
-    return {
-      r: parseInt(color.substring(0, 2), 16),
-      g: parseInt(color.substring(2, 4), 16),
-      b: parseInt(color.substring(4, 6), 16)
-    };
-  }
-  
-  console.warn('Failed to parse color:', hex, 'using black as fallback');
-  return {r: 0, g: 0, b: 0};
-}
-
-// Render object to bitmap array
-function renderObjectToBitmap(imageData: Uint8ClampedArray, width: number, height: number, obj: any): void {
   try {
     const objectType = obj.type?.toLowerCase();
-    console.log(`Rendering object type: ${objectType} with properties:`, obj);
-    
-    const left = Math.round(obj.left || 0);
-    const top = Math.round(obj.top || 0);
+    console.log(`Rendering object type: ${objectType}`);
     
     switch (objectType) {
       case 'textbox':
       case 'text':
+        const x = obj.left || 0;
+        const y = (obj.top || 0) + (obj.fontSize || 16);
+        const fontSize = obj.fontSize || 16;
+        const fill = obj.fill || '#000000';
+        const fontFamily = obj.fontFamily || 'Arial';
         const text = obj.text || '';
-        const fontSize = Math.round(obj.fontSize || 16);
-        const textColor = hexToRgb(obj.fill || '#000000');
         
-        console.log(`Rendering text: "${text}", fontSize: ${fontSize}, color: ${obj.fill}`);
+        // Handle text scaling if present
+        const scaleX = obj.scaleX || 1;
+        const scaleY = obj.scaleY || 1;
+        const scaledFontSize = fontSize * Math.max(scaleX, scaleY);
         
-        // Simple bitmap text rendering
-        const charWidth = Math.round(fontSize * 0.6);
-        const charHeight = fontSize;
+        console.log(`Text object: "${text}" at (${x}, ${y}), size: ${scaledFontSize}`);
         
-        for (let i = 0; i < text.length; i++) {
-          const charLeft = left + (i * charWidth);
-          const charTop = top;
-          
-          // Draw each character as a rectangle pattern
-          for (let x = 0; x < charWidth; x++) {
-            for (let y = 0; y < charHeight; y++) {
-              const pixelX = charLeft + x;
-              const pixelY = charTop + y;
-              
-              if (pixelX >= 0 && pixelY >= 0 && pixelX < width && pixelY < height) {
-                // Simple text pattern - show text in middle area
-                if (y > charHeight * 0.2 && y < charHeight * 0.8 && x > charWidth * 0.1 && x < charWidth * 0.9) {
-                  const index = (pixelY * width + pixelX) * 4;
-                  imageData[index] = textColor.r;
-                  imageData[index + 1] = textColor.g;
-                  imageData[index + 2] = textColor.b;
-                  imageData[index + 3] = 255;
-                }
-              }
-            }
-          }
+        svg += `<text x="${x}" y="${y}" font-family="${fontFamily}" font-size="${scaledFontSize}" fill="${fill}"`;
+        
+        // Add font weight and style if present
+        if (obj.fontWeight) {
+          svg += ` font-weight="${obj.fontWeight}"`;
         }
+        if (obj.fontStyle) {
+          svg += ` font-style="${obj.fontStyle}"`;
+        }
+        if (obj.textAlign) {
+          svg += ` text-anchor="${obj.textAlign === 'center' ? 'middle' : obj.textAlign === 'right' ? 'end' : 'start'}"`;
+        }
+        
+        // Add rotation if present
+        if (obj.angle) {
+          const centerX = x + (obj.width || 0) * scaleX / 2;
+          const centerY = y - (obj.height || 0) * scaleY / 2;
+          svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
+        }
+        
+        svg += `>${escapeXml(text)}</text>`;
         break;
         
       case 'rect':
       case 'rectangle':
-        const rectWidth = Math.round(obj.width || 100);
-        const rectHeight = Math.round(obj.height || 100);
-        const rectColor = hexToRgb(obj.fill || '#000000');
+        const rectX = obj.left || 0;
+        const rectY = obj.top || 0;
+        const rectWidth = (obj.width || 100) * (obj.scaleX || 1);
+        const rectHeight = (obj.height || 100) * (obj.scaleY || 1);
+        const rectFill = obj.fill || '#000000';
+        const rectStroke = obj.stroke || 'none';
+        const rectStrokeWidth = obj.strokeWidth || 0;
         
-        console.log(`Rendering rectangle: ${rectWidth}x${rectHeight} at (${left}, ${top}), fill: ${obj.fill}`);
+        console.log(`Rectangle: (${rectX}, ${rectY}) ${rectWidth}x${rectHeight}, fill: ${rectFill}`);
         
-        // Draw filled rectangle
-        for (let x = 0; x < rectWidth; x++) {
-          for (let y = 0; y < rectHeight; y++) {
-            const pixelX = left + x;
-            const pixelY = top + y;
-            
-            if (pixelX >= 0 && pixelY >= 0 && pixelX < width && pixelY < height) {
-              const index = (pixelY * width + pixelX) * 4;
-              imageData[index] = rectColor.r;
-              imageData[index + 1] = rectColor.g;
-              imageData[index + 2] = rectColor.b;
-              imageData[index + 3] = 255;
-            }
-          }
+        svg += `<rect x="${rectX}" y="${rectY}" width="${rectWidth}" height="${rectHeight}" fill="${rectFill}"`;
+        
+        if (rectStroke !== 'none' && rectStrokeWidth > 0) {
+          svg += ` stroke="${rectStroke}" stroke-width="${rectStrokeWidth}"`;
         }
+        
+        if (obj.angle) {
+          const centerX = rectX + rectWidth / 2;
+          const centerY = rectY + rectHeight / 2;
+          svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
+        }
+        
+        svg += `/>`;
         break;
         
       case 'circle':
-        const radius = Math.round(obj.radius || 50);
-        const circleColor = hexToRgb(obj.fill || '#000000');
+        const circleX = (obj.left || 0) + (obj.radius || 50) * (obj.scaleX || 1);
+        const circleY = (obj.top || 0) + (obj.radius || 50) * (obj.scaleY || 1);
+        const radius = (obj.radius || 50) * Math.max(obj.scaleX || 1, obj.scaleY || 1);
+        const circleFill = obj.fill || '#000000';
+        const circleStroke = obj.stroke || 'none';
+        const circleStrokeWidth = obj.strokeWidth || 0;
         
-        console.log(`Rendering circle: radius ${radius} at (${left}, ${top}), fill: ${obj.fill}`);
+        console.log(`Circle: center (${circleX}, ${circleY}), radius: ${radius}, fill: ${circleFill}`);
         
-        // Draw filled circle
-        const centerX = left + radius;
-        const centerY = top + radius;
+        svg += `<circle cx="${circleX}" cy="${circleY}" r="${radius}" fill="${circleFill}"`;
         
-        for (let x = -radius; x <= radius; x++) {
-          for (let y = -radius; y <= radius; y++) {
-            if (x * x + y * y <= radius * radius) {
-              const pixelX = centerX + x;
-              const pixelY = centerY + y;
-              
-              if (pixelX >= 0 && pixelY >= 0 && pixelX < width && pixelY < height) {
-                const index = (pixelY * width + pixelX) * 4;
-                imageData[index] = circleColor.r;
-                imageData[index + 1] = circleColor.g;
-                imageData[index + 2] = circleColor.b;
-                imageData[index + 3] = 255;
-              }
-            }
+        if (circleStroke !== 'none' && circleStrokeWidth > 0) {
+          svg += ` stroke="${circleStroke}" stroke-width="${circleStrokeWidth}"`;
+        }
+        
+        if (obj.angle) {
+          svg += ` transform="rotate(${obj.angle} ${circleX} ${circleY})"`;
+        }
+        
+        svg += `/>`;
+        break;
+        
+      case 'image':
+        if (obj.src) {
+          const imgX = obj.left || 0;
+          const imgY = obj.top || 0;
+          const imgWidth = (obj.width || 100) * (obj.scaleX || 1);
+          const imgHeight = (obj.height || 100) * (obj.scaleY || 1);
+          
+          console.log(`Image: (${imgX}, ${imgY}) ${imgWidth}x${imgHeight}, src: ${obj.src.substring(0, 50)}...`);
+          
+          svg += `<image x="${imgX}" y="${imgY}" width="${imgWidth}" height="${imgHeight}" href="${obj.src}"`;
+          
+          if (obj.angle) {
+            const centerX = imgX + imgWidth / 2;
+            const centerY = imgY + imgHeight / 2;
+            svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
           }
+          
+          svg += `/>`;
         }
         break;
         
       case 'line':
-        const x1 = Math.round(left + (obj.x1 || 0));
-        const y1 = Math.round(top + (obj.y1 || 0));
-        const x2 = Math.round(left + (obj.x2 || obj.width || 100));
-        const y2 = Math.round(top + (obj.y2 || 0));
-        const lineColor = hexToRgb(obj.stroke || '#000000');
+        const x1 = obj.x1 || obj.left || 0;
+        const y1 = obj.y1 || obj.top || 0;
+        const x2 = obj.x2 || (obj.left || 0) + (obj.width || 100);
+        const y2 = obj.y2 || (obj.top || 0) + (obj.height || 0);
+        const lineStroke = obj.stroke || '#000000';
+        const lineStrokeWidth = obj.strokeWidth || 1;
         
-        console.log(`Rendering line: (${x1}, ${y1}) to (${x2}, ${y2}), stroke: ${obj.stroke}`);
+        console.log(`Line: (${x1}, ${y1}) to (${x2}, ${y2}), stroke: ${lineStroke}`);
         
-        // Draw line using Bresenham's algorithm
-        drawLineToBitmap(imageData, width, height, x1, y1, x2, y2, lineColor);
-        break;
+        svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${lineStroke}" stroke-width="${lineStrokeWidth}"`;
         
-      case 'group':
-        // Handle grouped objects
-        if (obj.objects && Array.isArray(obj.objects)) {
-          console.log(`Rendering group with ${obj.objects.length} objects`);
-          for (const groupObj of obj.objects) {
-            // Adjust coordinates relative to group position
-            const adjustedObj = {
-              ...groupObj,
-              left: (groupObj.left || 0) + left,
-              top: (groupObj.top || 0) + top
-            };
-            renderObjectToBitmap(imageData, width, height, adjustedObj);
-          }
+        if (obj.angle) {
+          const centerX = (x1 + x2) / 2;
+          const centerY = (y1 + y2) / 2;
+          svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
         }
+        
+        svg += `/>`;
         break;
         
       default:
-        console.log('Unknown object type:', obj.type, 'with keys:', Object.keys(obj));
-        // Draw a placeholder rectangle for unknown types
-        if (obj.width !== undefined && obj.height !== undefined) {
-          const genWidth = Math.round(obj.width);
-          const genHeight = Math.round(obj.height);
-          const genColor = hexToRgb(obj.fill || '#cccccc');
+        console.log('Unknown object type:', obj.type, 'Object keys:', Object.keys(obj));
+        // Try to render as a generic rectangle if it has basic properties
+        if (obj.left !== undefined && obj.top !== undefined) {
+          const genX = obj.left || 0;
+          const genY = obj.top || 0;
+          const genWidth = (obj.width || 50) * (obj.scaleX || 1);
+          const genHeight = (obj.height || 50) * (obj.scaleY || 1);
+          const genFill = obj.fill || '#cccccc';
           
-          console.log(`Rendering fallback rectangle: ${genWidth}x${genHeight}, fill: ${obj.fill}`);
+          console.log(`Generic object: (${genX}, ${genY}) ${genWidth}x${genHeight}, fill: ${genFill}`);
           
-          for (let x = 0; x < genWidth; x++) {
-            for (let y = 0; y < genHeight; y++) {
-              const pixelX = left + x;
-              const pixelY = top + y;
-              
-              if (pixelX >= 0 && pixelY >= 0 && pixelX < width && pixelY < height) {
-                const index = (pixelY * width + pixelX) * 4;
-                imageData[index] = genColor.r;
-                imageData[index + 1] = genColor.g;
-                imageData[index + 2] = genColor.b;
-                imageData[index + 3] = 255;
-              }
-            }
-          }
+          svg += `<rect x="${genX}" y="${genY}" width="${genWidth}" height="${genHeight}" fill="${genFill}"/>`;
         }
     }
   } catch (error) {
-    console.error('Error rendering object to bitmap:', error, 'Object:', obj);
+    console.error('Error rendering object to SVG:', error, 'Object:', obj);
   }
-}
-
-// Draw line to bitmap using Bresenham's algorithm
-function drawLineToBitmap(imageData: Uint8ClampedArray, width: number, height: number, x1: number, y1: number, x2: number, y2: number, color: {r: number, g: number, b: number}): void {
-  const dx = Math.abs(x2 - x1);
-  const dy = Math.abs(y2 - y1);
-  const sx = x1 < x2 ? 1 : -1;
-  const sy = y1 < y2 ? 1 : -1;
-  let err = dx - dy;
-
-  let x = x1;
-  let y = y1;
-
-  while (true) {
-    if (x >= 0 && y >= 0 && x < width && y < height) {
-      const index = (y * width + x) * 4;
-      imageData[index] = color.r;
-      imageData[index + 1] = color.g;
-      imageData[index + 2] = color.b;
-      imageData[index + 3] = 255;
-    }
-
-    if (x === x2 && y === y2) break;
-
-    const e2 = 2 * err;
-    if (e2 > -dy) {
-      err -= dy;
-      x += sx;
-    }
-    if (e2 < dx) {
-      err += dx;
-      y += sy;
-    }
-  }
-}
-
-// Create JPEG from bitmap data
-async function createJPEGFromImageData(imageData: Uint8ClampedArray, width: number, height: number): Promise<Uint8Array> {
-  try {
-    // Convert RGBA to RGB and create a basic BMP, then use external service or simple encoding
-    // For now, let's create a simple PPM format and convert it
-    
-    // Create PPM header
-    const header = `P6\n${width} ${height}\n255\n`;
-    const headerBytes = new TextEncoder().encode(header);
-    
-    // Convert RGBA to RGB
-    const rgbData = new Uint8Array(width * height * 3);
-    for (let i = 0; i < width * height; i++) {
-      const rgba_idx = i * 4;
-      const rgb_idx = i * 3;
-      rgbData[rgb_idx] = imageData[rgba_idx];         // R
-      rgbData[rgb_idx + 1] = imageData[rgba_idx + 1]; // G
-      rgbData[rgb_idx + 2] = imageData[rgba_idx + 2]; // B
-    }
-    
-    // Combine header and data
-    const ppmData = new Uint8Array(headerBytes.length + rgbData.length);
-    ppmData.set(headerBytes);
-    ppmData.set(rgbData, headerBytes.length);
-    
-    // For now, return PPM data (we can convert to JPEG later with proper library)
-    // This will at least show the image correctly
-    return ppmData;
-    
-  } catch (error) {
-    console.error('Error creating JPEG from image data:', error);
-    throw error;
-  }
-}
-
-// Create a simple fallback JPEG for errors
-async function createFallbackJPEG(): Promise<Uint8Array> {
-  console.log('Creating fallback JPEG');
   
-  try {
-    // Create a simple 400x300 error image using our bitmap approach
-    const width = 400;
-    const height = 300;
-    const imageData = new Uint8ClampedArray(width * height * 4);
-    
-    // Fill with light gray background
-    const bgColor = hexToRgb('#f8f9fa');
-    for (let i = 0; i < imageData.length; i += 4) {
-      imageData[i] = bgColor.r;
-      imageData[i + 1] = bgColor.g;
-      imageData[i + 2] = bgColor.b;
-      imageData[i + 3] = 255;
+  return svg;
+}
+
+// Helper function to escape XML special characters
+function escapeXml(unsafe: string): string {
+  return unsafe.replace(/[<>&'"]/g, function (c) {
+    switch (c) {
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '&': return '&amp;';
+      case '\'': return '&apos;';
+      case '"': return '&quot;';
+      default: return c;
     }
-    
-    // Draw a red error rectangle in center
-    const errorColor = hexToRgb('#dc3545');
-    for (let x = 150; x < 250; x++) {
-      for (let y = 125; y < 175; y++) {
-        const index = (y * width + x) * 4;
-        imageData[index] = errorColor.r;
-        imageData[index + 1] = errorColor.g;
-        imageData[index + 2] = errorColor.b;
-        imageData[index + 3] = 255;
-      }
-    }
-    
-    return await createJPEGFromImageData(imageData, width, height);
-    
-  } catch (error) {
-    console.error('Failed to create fallback image:', error);
-    
-    // Return minimal valid JPEG header if all else fails
-    return new Uint8Array([
-      0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01,
-      0x01, 0x01, 0x00, 0x48, 0x00, 0x48, 0x00, 0x00, 0xFF, 0xD9
-    ]);
-  }
+  });
+}
+
+// Create a simple fallback SVG for errors
+function createFallbackSVG(): Uint8Array {
+  console.log('Creating fallback SVG');
+  
+  const fallbackSVG = `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+    <rect width="100%" height="100%" fill="#f8f9fa"/>
+    <text x="200" y="150" text-anchor="middle" font-family="Arial" font-size="16" fill="#dc3545">
+      Error generating image
+    </text>
+  </svg>`;
+  
+  return new TextEncoder().encode(fallbackSVG);
 }
