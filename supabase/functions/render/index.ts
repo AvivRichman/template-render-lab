@@ -1,8 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.2';
-import { Resvg, initWasm } from "https://esm.sh/@resvg/resvg-js@2.6.0?target=deno";
-import wasmUrl from "https://esm.sh/@resvg/resvg-wasm@2.6.0/index_bg.wasm?url";
-import { encode as encodeJpeg } from "https://esm.sh/@jsquash/jpeg@1.3.1?target=deno";
+import { Resvg, initWasm } from "https://esm.sh/@resvg/resvg-js@2.6.2?target=browser";
+import wasmUrl from "https://esm.sh/@resvg/resvg-wasm@2.6.2/index_bg.wasm?url";
+import { encode as encodeJpeg } from "https://esm.sh/@jsquash/jpeg@1.3.1?target=browser";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
