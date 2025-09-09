@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.2';
-import { DOMParser } from "https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -34,18 +33,18 @@ serve(async (req) => {
 
     console.log('Generating image...');
     
-    // Generate actual image from template scene data
+    // Generate SVG from template scene data
     const timestamp = Date.now();
-    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.png`;
+    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.svg`;
     
-    // Create SVG from scene data and convert to PNG
+    // Create SVG from scene data
     const imageBuffer = await generateImageFromSceneData(scene_data);
     
-    // Upload to storage
+    // Upload to storage as SVG (browsers can display SVG directly)
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('api-renders')
       .upload(imagePath, imageBuffer, {
-        contentType: 'image/png',
+        contentType: 'image/svg+xml',
         upsert: true
       });
     
@@ -82,7 +81,7 @@ serve(async (req) => {
   }
 });
 
-// Generate SVG from scene data and convert to PNG
+// Generate SVG from scene data and return it as bytes for upload
 async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
   try {
     console.log('Scene data received for rendering');
@@ -117,12 +116,13 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     console.log('Generated SVG length:', svg.length);
     console.log('SVG preview:', svg.substring(0, 500) + '...');
     
-    // Convert SVG to proper base64 encoded PNG using a more robust approach
-    return await convertSVGToPNG(svg, width, height);
+    // Instead of converting to PNG (which is complex in Deno), 
+    // return the SVG as bytes - browsers can display SVG files directly
+    return new TextEncoder().encode(svg);
     
   } catch (error) {
     console.error('Error generating image from scene data:', error);
-    return createFallbackPNG();
+    return createFallbackSVG();
   }
 }
 
@@ -302,166 +302,16 @@ function escapeXml(unsafe: string): string {
   });
 }
 
-// Convert SVG to PNG using proper encoding
-async function convertSVGToPNG(svg: string, width: number, height: number): Promise<Uint8Array> {
-  try {
-    console.log('Converting SVG to PNG...');
-    
-    // Create a proper SVG data URL
-    const svgBase64 = btoa(unescape(encodeURIComponent(svg)));
-    const svgDataUrl = `data:image/svg+xml;base64,${svgBase64}`;
-    
-    console.log('SVG Data URL created, length:', svgDataUrl.length);
-    
-    // For server-side rendering, we'll return the SVG as PNG-wrapped data
-    // This is a simplified but working approach for Deno environments
-    
-    // Create a minimal PNG structure with the SVG embedded as text data
-    // This won't be a true visual PNG but will be a valid file format
-    
-    // Convert SVG to bytes
-    const svgBytes = new TextEncoder().encode(svg);
-    
-    // Create PNG header
-    const pngSignature = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
-    
-    // Create IHDR chunk (Image Header)
-    const ihdrData = new Uint8Array(13);
-    const ihdrView = new DataView(ihdrData.buffer);
-    ihdrView.setUint32(0, width, false);  // Width
-    ihdrView.setUint32(4, height, false); // Height
-    ihdrData[8] = 8;   // Bit depth
-    ihdrData[9] = 2;   // Color type (RGB)
-    ihdrData[10] = 0;  // Compression method
-    ihdrData[11] = 0;  // Filter method
-    ihdrData[12] = 0;  // Interlace method
-    
-    // Calculate CRC for IHDR
-    const ihdrCrc = calculateCRC32(new Uint8Array([...new TextEncoder().encode('IHDR'), ...ihdrData]));
-    
-    // Create text chunk with SVG data (tEXt chunk)
-    const keyword = 'SVG';
-    const keywordBytes = new TextEncoder().encode(keyword);
-    const nullSeparator = new Uint8Array([0]);
-    const textData = new Uint8Array([...keywordBytes, ...nullSeparator, ...svgBytes]);
-    const textCrc = calculateCRC32(new Uint8Array([...new TextEncoder().encode('tEXt'), ...textData]));
-    
-    // Create minimal image data (IDAT chunk) - just a simple colored rectangle
-    const pixelCount = width * height;
-    const bytesPerPixel = 3; // RGB
-    const imageDataSize = pixelCount * bytesPerPixel + height; // +height for filter bytes
-    const imageData = new Uint8Array(imageDataSize);
-    
-    // Fill with a simple pattern based on the SVG content
-    let dataIndex = 0;
-    for (let y = 0; y < height; y++) {
-      imageData[dataIndex++] = 0; // Filter type (None)
-      for (let x = 0; x < width; x++) {
-        // Create a simple colored background
-        imageData[dataIndex++] = 240; // R
-        imageData[dataIndex++] = 240; // G
-        imageData[dataIndex++] = 240; // B
-      }
-    }
-    
-    const idatCrc = calculateCRC32(new Uint8Array([...new TextEncoder().encode('IDAT'), ...imageData]));
-    
-    // Create IEND chunk
-    const iendCrc = calculateCRC32(new TextEncoder().encode('IEND'));
-    
-    // Combine all chunks
-    const result = new Uint8Array(
-      pngSignature.length + 
-      12 + ihdrData.length + // IHDR chunk (4 bytes length + 4 bytes type + data + 4 bytes CRC)
-      12 + textData.length + // tEXt chunk
-      12 + imageData.length + // IDAT chunk
-      12 // IEND chunk
-    );
-    
-    let offset = 0;
-    
-    // PNG signature
-    result.set(pngSignature, offset);
-    offset += pngSignature.length;
-    
-    // IHDR chunk
-    const ihdrLengthBytes = new Uint8Array(4);
-    new DataView(ihdrLengthBytes.buffer).setUint32(0, ihdrData.length, false);
-    result.set(ihdrLengthBytes, offset); offset += 4;
-    result.set(new TextEncoder().encode('IHDR'), offset); offset += 4;
-    result.set(ihdrData, offset); offset += ihdrData.length;
-    const ihdrCrcBytes = new Uint8Array(4);
-    new DataView(ihdrCrcBytes.buffer).setUint32(0, ihdrCrc, false);
-    result.set(ihdrCrcBytes, offset); offset += 4;
-    
-    // tEXt chunk (contains SVG data)
-    const textLengthBytes = new Uint8Array(4);
-    new DataView(textLengthBytes.buffer).setUint32(0, textData.length, false);
-    result.set(textLengthBytes, offset); offset += 4;
-    result.set(new TextEncoder().encode('tEXt'), offset); offset += 4;
-    result.set(textData, offset); offset += textData.length;
-    const textCrcBytes = new Uint8Array(4);
-    new DataView(textCrcBytes.buffer).setUint32(0, textCrc, false);
-    result.set(textCrcBytes, offset); offset += 4;
-    
-    // IDAT chunk
-    const idatLengthBytes = new Uint8Array(4);
-    new DataView(idatLengthBytes.buffer).setUint32(0, imageData.length, false);
-    result.set(idatLengthBytes, offset); offset += 4;
-    result.set(new TextEncoder().encode('IDAT'), offset); offset += 4;
-    result.set(imageData, offset); offset += imageData.length;
-    const idatCrcBytes = new Uint8Array(4);
-    new DataView(idatCrcBytes.buffer).setUint32(0, idatCrc, false);
-    result.set(idatCrcBytes, offset); offset += 4;
-    
-    // IEND chunk
-    const iendLengthBytes = new Uint8Array(4);
-    result.set(iendLengthBytes, offset); offset += 4; // Length is 0
-    result.set(new TextEncoder().encode('IEND'), offset); offset += 4;
-    const iendCrcBytes = new Uint8Array(4);
-    new DataView(iendCrcBytes.buffer).setUint32(0, iendCrc, false);
-    result.set(iendCrcBytes, offset); offset += 4;
-    
-    console.log('PNG created successfully, size:', result.length);
-    return result;
-    
-  } catch (error) {
-    console.error('Error converting SVG to PNG:', error);
-    return createFallbackPNG();
-  }
-}
-
-// Simple CRC32 calculation
-function calculateCRC32(data: Uint8Array): number {
-  const crcTable = new Array(256);
-  for (let i = 0; i < 256; i++) {
-    let crc = i;
-    for (let j = 0; j < 8; j++) {
-      crc = (crc & 1) ? (0xEDB88320 ^ (crc >>> 1)) : (crc >>> 1);
-    }
-    crcTable[i] = crc;
-  }
+// Create a simple fallback SVG for errors
+function createFallbackSVG(): Uint8Array {
+  console.log('Creating fallback SVG');
   
-  let crc = 0xFFFFFFFF;
-  for (let i = 0; i < data.length; i++) {
-    crc = crcTable[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8);
-  }
-  return (crc ^ 0xFFFFFFFF) >>> 0;
-}
-
-// Create a simple fallback PNG for errors
-function createFallbackPNG(): Uint8Array {
-  console.log('Creating fallback PNG');
+  const fallbackSVG = `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+    <rect width="100%" height="100%" fill="#f8f9fa"/>
+    <text x="200" y="150" text-anchor="middle" font-family="Arial" font-size="16" fill="#dc3545">
+      Error generating image
+    </text>
+  </svg>`;
   
-  // Simple 1x1 red pixel PNG in base64
-  const redPixelPNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
-  
-  const binaryString = atob(redPixelPNG);
-  const bytes = new Uint8Array(binaryString.length);
-  
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  
-  return bytes;
+  return new TextEncoder().encode(fallbackSVG);
 }
