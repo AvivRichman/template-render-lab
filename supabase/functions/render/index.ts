@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.2';
+import { encode } from "https://deno.land/x/imagescript@1.3.0/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -81,7 +82,7 @@ serve(async (req) => {
   }
 });
 
-// Generate JPEG from scene data using OffscreenCanvas
+// Generate JPEG from scene data using pure JavaScript
 async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
   try {
     console.log('Scene data received for rendering');
@@ -94,36 +95,35 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     
     console.log(`Canvas dimensions: ${width}x${height}, background: ${backgroundColor}`);
     
-    // Create OffscreenCanvas for rendering
-    const canvas = new OffscreenCanvas(width, height);
-    const ctx = canvas.getContext('2d');
+    // Create SVG first, then convert to JPEG
+    const svgContent = generateSVGFromSceneData(sceneData);
+    console.log('Generated SVG content length:', svgContent.length);
     
-    if (!ctx) {
-      throw new Error('Could not get 2D context from OffscreenCanvas');
-    }
+    // For now, create a simple JPEG using ImageScript
+    const { Image } = await import("https://deno.land/x/imagescript@1.3.0/mod.ts");
     
-    // Set background
-    ctx.fillStyle = backgroundColor;
-    ctx.fillRect(0, 0, width, height);
+    // Create a new image with solid background color
+    const image = new Image(width, height);
     
-    // Process each object in the scene
+    // Parse background color
+    const bgColor = parseColor(backgroundColor);
+    image.fill(bgColor);
+    
+    // Process objects and draw them to the image
     if (sceneData.objects && Array.isArray(sceneData.objects)) {
       console.log('Processing objects...');
       for (let i = 0; i < sceneData.objects.length; i++) {
         const obj = sceneData.objects[i];
-        console.log(`Processing object ${i}: type=${obj.type}, left=${obj.left}, top=${obj.top}`);
-        await renderObjectToCanvas(ctx, obj);
+        console.log(`Processing object ${i}: type=${obj.type}`);
+        renderObjectToImage(image, obj);
       }
     }
     
-    // Convert canvas to JPEG blob
-    const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.9 });
-    const arrayBuffer = await blob.arrayBuffer();
-    const uint8Array = new Uint8Array(arrayBuffer);
+    // Encode as JPEG
+    const jpegBuffer = await image.encode(1); // 1 = JPEG format
+    console.log('Generated JPEG size:', jpegBuffer.length, 'bytes');
     
-    console.log('Generated JPEG size:', uint8Array.length, 'bytes');
-    
-    return uint8Array;
+    return jpegBuffer;
     
   } catch (error) {
     console.error('Error generating image from scene data:', error);
@@ -131,170 +131,213 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
   }
 }
 
-// Render a Fabric.js object to Canvas
-async function renderObjectToCanvas(ctx: OffscreenCanvasRenderingContext2D, obj: any): Promise<void> {
+// Generate SVG content from scene data for reference
+function generateSVGFromSceneData(sceneData: any): string {
+  const width = sceneData.width || 800;
+  const height = sceneData.height || 600;
+  const backgroundColor = sceneData.backgroundColor || '#ffffff';
+  
+  let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">`;
+  svgContent += `<rect width="100%" height="100%" fill="${backgroundColor}"/>`;
+  
+  if (sceneData.objects && Array.isArray(sceneData.objects)) {
+    sceneData.objects.forEach((obj: any) => {
+      svgContent += renderObjectToSVG(obj);
+    });
+  }
+  
+  svgContent += '</svg>';
+  return svgContent;
+}
+
+// Helper to parse hex color to RGBA
+function parseColor(colorStr: string): number {
+  let color = colorStr.replace('#', '');
+  if (color.length === 3) {
+    color = color.split('').map(c => c + c).join('');
+  }
+  
+  const r = parseInt(color.substring(0, 2), 16);
+  const g = parseInt(color.substring(2, 4), 16);
+  const b = parseInt(color.substring(4, 6), 16);
+  
+  // Return as RGBA (alpha = 255 for opaque)
+  return (r << 24) | (g << 16) | (b << 8) | 255;
+}
+
+// Render object to ImageScript Image
+function renderObjectToImage(image: any, obj: any): void {
   try {
     const objectType = obj.type?.toLowerCase();
     console.log(`Rendering object type: ${objectType}`);
     
-    // Save canvas state
-    ctx.save();
-    
-    // Apply transformations if present
-    if (obj.left || obj.top) {
-      ctx.translate(obj.left || 0, obj.top || 0);
-    }
-    
-    if (obj.angle) {
-      ctx.rotate((obj.angle * Math.PI) / 180);
-    }
-    
-    if (obj.scaleX || obj.scaleY) {
-      ctx.scale(obj.scaleX || 1, obj.scaleY || 1);
-    }
+    const left = Math.round(obj.left || 0);
+    const top = Math.round(obj.top || 0);
     
     switch (objectType) {
       case 'textbox':
       case 'text':
-        const fontSize = obj.fontSize || 16;
-        const fill = obj.fill || '#000000';
-        const fontFamily = obj.fontFamily || 'Arial';
-        const text = obj.text || '';
-        const fontWeight = obj.fontWeight || 'normal';
-        const fontStyle = obj.fontStyle || 'normal';
+        // For text, draw a simple placeholder rectangle for now
+        // (Full text rendering would require a font library)
+        const textWidth = (obj.text?.length || 5) * (obj.fontSize || 16) * 0.6;
+        const textHeight = obj.fontSize || 16;
+        const textColor = parseColor(obj.fill || '#000000');
         
-        console.log(`Text object: "${text}", size: ${fontSize}`);
+        console.log(`Text placeholder: "${obj.text}", size: ${obj.fontSize}`);
         
-        ctx.fillStyle = fill;
-        ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
-        
-        // Set text alignment
-        if (obj.textAlign === 'center') {
-          ctx.textAlign = 'center';
-        } else if (obj.textAlign === 'right') {
-          ctx.textAlign = 'end';
-        } else {
-          ctx.textAlign = 'start';
-        }
-        
-        ctx.fillText(text, 0, 0);
-        break;
-        
-      case 'rect':
-      case 'rectangle':
-        const rectWidth = obj.width || 100;
-        const rectHeight = obj.height || 100;
-        const rectFill = obj.fill || '#000000';
-        const rectStroke = obj.stroke;
-        const rectStrokeWidth = obj.strokeWidth || 0;
-        
-        console.log(`Rectangle: ${rectWidth}x${rectHeight}, fill: ${rectFill}`);
-        
-        if (rectFill && rectFill !== 'transparent') {
-          ctx.fillStyle = rectFill;
-          ctx.fillRect(0, 0, rectWidth, rectHeight);
-        }
-        
-        if (rectStroke && rectStrokeWidth > 0) {
-          ctx.strokeStyle = rectStroke;
-          ctx.lineWidth = rectStrokeWidth;
-          ctx.strokeRect(0, 0, rectWidth, rectHeight);
-        }
-        break;
-        
-      case 'circle':
-        const radius = obj.radius || 50;
-        const circleFill = obj.fill || '#000000';
-        const circleStroke = obj.stroke;
-        const circleStrokeWidth = obj.strokeWidth || 0;
-        
-        console.log(`Circle: radius: ${radius}, fill: ${circleFill}`);
-        
-        ctx.beginPath();
-        ctx.arc(radius, radius, radius, 0, 2 * Math.PI);
-        
-        if (circleFill && circleFill !== 'transparent') {
-          ctx.fillStyle = circleFill;
-          ctx.fill();
-        }
-        
-        if (circleStroke && circleStrokeWidth > 0) {
-          ctx.strokeStyle = circleStroke;
-          ctx.lineWidth = circleStrokeWidth;
-          ctx.stroke();
-        }
-        break;
-        
-      case 'line':
-        const x1 = obj.x1 || 0;
-        const y1 = obj.y1 || 0;
-        const x2 = obj.x2 || (obj.width || 100);
-        const y2 = obj.y2 || 0;
-        const lineStroke = obj.stroke || '#000000';
-        const lineStrokeWidth = obj.strokeWidth || 1;
-        
-        console.log(`Line: (${x1}, ${y1}) to (${x2}, ${y2}), stroke: ${lineStroke}`);
-        
-        ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
-        ctx.strokeStyle = lineStroke;
-        ctx.lineWidth = lineStrokeWidth;
-        ctx.stroke();
-        break;
-        
-      case 'image':
-        if (obj.src) {
-          const imgWidth = obj.width || 100;
-          const imgHeight = obj.height || 100;
-          
-          console.log(`Image: ${imgWidth}x${imgHeight}, src: ${obj.src.substring(0, 50)}...`);
-          
-          try {
-            // Create image element and load it
-            const img = new Image();
-            img.src = obj.src;
-            
-            // Wait for image to load (in a real implementation, you might need to handle this differently)
-            await new Promise((resolve, reject) => {
-              img.onload = resolve;
-              img.onerror = reject;
-              // Add timeout to prevent hanging
-              setTimeout(reject, 5000);
-            });
-            
-            ctx.drawImage(img, 0, 0, imgWidth, imgHeight);
-          } catch (error) {
-            console.log('Failed to load image, drawing placeholder');
-            // Draw a placeholder rectangle
-            ctx.fillStyle = '#cccccc';
-            ctx.fillRect(0, 0, imgWidth, imgHeight);
-            ctx.strokeStyle = '#999999';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(0, 0, imgWidth, imgHeight);
+        // Draw a simple rectangle as text placeholder
+        for (let x = 0; x < textWidth && left + x < image.width; x++) {
+          for (let y = 0; y < textHeight && top + y < image.height; y++) {
+            if (left + x >= 0 && top + y >= 0) {
+              image.setPixelAt(left + x, top + y, textColor);
+            }
           }
         }
         break;
         
+      case 'rect':
+      case 'rectangle':
+        const rectWidth = Math.round(obj.width || 100);
+        const rectHeight = Math.round(obj.height || 100);
+        const rectColor = parseColor(obj.fill || '#000000');
+        
+        console.log(`Rectangle: ${rectWidth}x${rectHeight}, fill: ${obj.fill}`);
+        
+        // Draw filled rectangle
+        for (let x = 0; x < rectWidth && left + x < image.width; x++) {
+          for (let y = 0; y < rectHeight && top + y < image.height; y++) {
+            if (left + x >= 0 && top + y >= 0) {
+              image.setPixelAt(left + x, top + y, rectColor);
+            }
+          }
+        }
+        break;
+        
+      case 'circle':
+        const radius = Math.round(obj.radius || 50);
+        const circleColor = parseColor(obj.fill || '#000000');
+        
+        console.log(`Circle: radius: ${radius}, fill: ${obj.fill}`);
+        
+        // Draw filled circle
+        const centerX = left + radius;
+        const centerY = top + radius;
+        
+        for (let x = -radius; x <= radius; x++) {
+          for (let y = -radius; y <= radius; y++) {
+            if (x * x + y * y <= radius * radius) {
+              const pixelX = centerX + x;
+              const pixelY = centerY + y;
+              if (pixelX >= 0 && pixelY >= 0 && pixelX < image.width && pixelY < image.height) {
+                image.setPixelAt(pixelX, pixelY, circleColor);
+              }
+            }
+          }
+        }
+        break;
+        
+      case 'line':
+        const x1 = Math.round(left + (obj.x1 || 0));
+        const y1 = Math.round(top + (obj.y1 || 0));
+        const x2 = Math.round(left + (obj.x2 || obj.width || 100));
+        const y2 = Math.round(top + (obj.y2 || 0));
+        const lineColor = parseColor(obj.stroke || '#000000');
+        
+        console.log(`Line: (${x1}, ${y1}) to (${x2}, ${y2})`);
+        
+        // Simple line drawing using Bresenham's algorithm
+        drawLine(image, x1, y1, x2, y2, lineColor);
+        break;
+        
       default:
-        console.log('Unknown object type:', obj.type, 'Object keys:', Object.keys(obj));
-        // Draw a generic placeholder
-        if (obj.width !== undefined && obj.height !== undefined) {
-          const genWidth = obj.width || 50;
-          const genHeight = obj.height || 50;
-          const genFill = obj.fill || '#cccccc';
+        console.log('Unknown object type:', obj.type);
+        // Draw a placeholder rectangle
+        if (obj.width && obj.height) {
+          const genWidth = Math.round(obj.width);
+          const genHeight = Math.round(obj.height);
+          const genColor = parseColor(obj.fill || '#cccccc');
           
-          console.log(`Generic object: ${genWidth}x${genHeight}, fill: ${genFill}`);
-          
-          ctx.fillStyle = genFill;
-          ctx.fillRect(0, 0, genWidth, genHeight);
+          for (let x = 0; x < genWidth && left + x < image.width; x++) {
+            for (let y = 0; y < genHeight && top + y < image.height; y++) {
+              if (left + x >= 0 && top + y >= 0) {
+                image.setPixelAt(left + x, top + y, genColor);
+              }
+            }
+          }
         }
     }
-    
-    // Restore canvas state
-    ctx.restore();
   } catch (error) {
-    console.error('Error rendering object to canvas:', error, 'Object:', obj);
+    console.error('Error rendering object to image:', error);
+  }
+}
+
+// Simple line drawing function
+function drawLine(image: any, x1: number, y1: number, x2: number, y2: number, color: number): void {
+  const dx = Math.abs(x2 - x1);
+  const dy = Math.abs(y2 - y1);
+  const sx = x1 < x2 ? 1 : -1;
+  const sy = y1 < y2 ? 1 : -1;
+  let err = dx - dy;
+
+  let x = x1;
+  let y = y1;
+
+  while (true) {
+    if (x >= 0 && y >= 0 && x < image.width && y < image.height) {
+      image.setPixelAt(x, y, color);
+    }
+
+    if (x === x2 && y === y2) break;
+
+    const e2 = 2 * err;
+    if (e2 > -dy) {
+      err -= dy;
+      x += sx;
+    }
+    if (e2 < dx) {
+      err += dx;
+      y += sy;
+    }
+  }
+}
+
+// Render object to SVG for reference
+function renderObjectToSVG(obj: any): string {
+  const objectType = obj.type?.toLowerCase();
+  const left = obj.left || 0;
+  const top = obj.top || 0;
+  
+  switch (objectType) {
+    case 'textbox':
+    case 'text':
+      const fontSize = obj.fontSize || 16;
+      const fill = obj.fill || '#000000';
+      const text = escapeXml(obj.text || '');
+      return `<text x="${left}" y="${top + fontSize}" font-size="${fontSize}" fill="${fill}">${text}</text>`;
+      
+    case 'rect':
+    case 'rectangle':
+      const width = obj.width || 100;
+      const height = obj.height || 100;
+      const rectFill = obj.fill || '#000000';
+      return `<rect x="${left}" y="${top}" width="${width}" height="${height}" fill="${rectFill}"/>`;
+      
+    case 'circle':
+      const radius = obj.radius || 50;
+      const circleFill = obj.fill || '#000000';
+      return `<circle cx="${left + radius}" cy="${top + radius}" r="${radius}" fill="${circleFill}"/>`;
+      
+    case 'line':
+      const x1 = left + (obj.x1 || 0);
+      const y1 = top + (obj.y1 || 0);
+      const x2 = left + (obj.x2 || obj.width || 100);
+      const y2 = top + (obj.y2 || 0);
+      const stroke = obj.stroke || '#000000';
+      const strokeWidth = obj.strokeWidth || 1;
+      return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
+      
+    default:
+      return '';
   }
 }
 
@@ -313,36 +356,38 @@ function escapeXml(unsafe: string): string {
 }
 
 // Create a simple fallback JPEG for errors
-function createFallbackJPEG(): Uint8Array {
+async function createFallbackJPEG(): Promise<Uint8Array> {
   console.log('Creating fallback JPEG');
   
   try {
-    // Create a simple canvas with error message
-    const canvas = new OffscreenCanvas(400, 300);
-    const ctx = canvas.getContext('2d');
+    const { Image } = await import("https://deno.land/x/imagescript@1.3.0/mod.ts");
     
-    if (ctx) {
-      // Background
-      ctx.fillStyle = '#f8f9fa';
-      ctx.fillRect(0, 0, 400, 300);
-      
-      // Error text
-      ctx.fillStyle = '#dc3545';
-      ctx.font = '16px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText('Error generating image', 200, 150);
-      
-      // Convert to JPEG (this is async, but we'll return a placeholder)
-      return new Uint8Array([
-        255, 216, 255, 224, 0, 16, 74, 70, 73, 70, 0, 1, 1, 1, 0, 72, 0, 72, 0, 0, 255, 219
-      ]); // Basic JPEG header
+    // Create a 400x300 error image
+    const image = new Image(400, 300);
+    
+    // Fill with light gray background
+    const bgColor = parseColor('#f8f9fa');
+    image.fill(bgColor);
+    
+    // Draw a simple error indicator (red rectangle in center)
+    const errorColor = parseColor('#dc3545');
+    for (let x = 150; x < 250; x++) {
+      for (let y = 125; y < 175; y++) {
+        image.setPixelAt(x, y, errorColor);
+      }
     }
+    
+    // Encode as JPEG
+    const jpegBuffer = await image.encode(1);
+    return jpegBuffer;
+    
   } catch (error) {
-    console.error('Failed to create fallback canvas:', error);
+    console.error('Failed to create fallback image:', error);
+    
+    // Return minimal valid JPEG header if all else fails
+    return new Uint8Array([
+      0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01,
+      0x01, 0x01, 0x00, 0x48, 0x00, 0x48, 0x00, 0x00, 0xFF, 0xD9
+    ]);
   }
-  
-  // Return minimal JPEG header if canvas fails
-  return new Uint8Array([
-    255, 216, 255, 224, 0, 16, 74, 70, 73, 70, 0, 1, 1, 1, 0, 72, 0, 72, 0, 0, 255, 219
-  ]);
 }
