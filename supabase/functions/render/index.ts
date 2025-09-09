@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.2';
-import { Resvg } from "https://esm.sh/@resvg/resvg-js@2.6.0";
+import { Resvg, initWasm } from "https://esm.sh/resvg-wasm@2.4.1";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -383,10 +383,13 @@ function createFallbackSVG(): Uint8Array {
   return new TextEncoder().encode(fallbackSVG);
 }
 
-// Convert SVG to PNG using resvg-js
+// Convert SVG to PNG using resvg-wasm
 async function convertSVGToPNG(svgBuffer: Uint8Array): Promise<Uint8Array> {
   try {
-    console.log('Converting SVG to PNG using resvg-js...');
+    console.log('Converting SVG to PNG using resvg-wasm...');
+    
+    // Initialize WASM module
+    await initWasm(fetch('https://esm.sh/resvg-wasm@2.4.1/index_bg.wasm'));
     
     // Convert SVG buffer to string
     const svgString = new TextDecoder().decode(svgBuffer);
@@ -394,12 +397,7 @@ async function convertSVGToPNG(svgBuffer: Uint8Array): Promise<Uint8Array> {
     console.log('SVG string length:', svgString.length);
     
     // Create resvg instance and render
-    const resvg = new Resvg(svgString, {
-      background: 'white',
-      fitTo: {
-        mode: 'original',
-      },
-    });
+    const resvg = new Resvg(svgString);
     
     // Render to PNG
     const pngData = resvg.render();
@@ -422,6 +420,9 @@ async function createFallbackPNG(): Promise<Uint8Array> {
   try {
     console.log('Creating fallback PNG...');
     
+    // Initialize WASM if not already done
+    await initWasm(fetch('https://esm.sh/resvg-wasm@2.4.1/index_bg.wasm'));
+    
     // Create a simple SVG for the fallback
     const fallbackSVG = `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
       <rect width="100%" height="100%" fill="#f8f9fa"/>
@@ -431,13 +432,7 @@ async function createFallbackPNG(): Promise<Uint8Array> {
     </svg>`;
     
     // Convert fallback SVG to PNG using resvg
-    const resvg = new Resvg(fallbackSVG, {
-      background: 'white',
-      fitTo: {
-        mode: 'original',
-      },
-    });
-    
+    const resvg = new Resvg(fallbackSVG);
     const pngData = resvg.render();
     const pngBuffer = pngData.asPng();
     
