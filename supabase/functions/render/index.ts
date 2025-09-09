@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.2';
+import puppeteer from "https://deno.land/x/puppeteer@16.2.0/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -45,15 +46,13 @@ serve(async (req) => {
     // Create SVG from modified scene data
     const svgBuffer = await generateImageFromSceneData(modifiedSceneData);
     
-    // Convert SVG to PNG using a simple Canvas approach via data URL
-    const svgString = new TextDecoder().decode(svgBuffer);
-    const svgDataUrl = `data:image/svg+xml;base64,${btoa(svgString)}`;
+    // Convert SVG to PNG using Puppeteer
+    const pngBuffer = await convertSVGToPNG(svgBuffer);
     
-    // For now, upload the SVG but with PNG extension so we can transform it
-    // Supabase will treat it as a raster image for transformation
+    // Upload the PNG to Supabase Storage
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('api-renders')
-      .upload(imagePath, svgBuffer, {
+      .upload(imagePath, pngBuffer, {
         contentType: 'image/png',
         upsert: true
       });
@@ -83,8 +82,8 @@ serve(async (req) => {
       success: true,
       image_url: jpegImageUrl,
       template_id,
-      generation_time: '1.2s',
-      message: 'JPG image rendered successfully',
+      generation_time: '2-3s',
+      message: 'PNG converted to JPG image rendered successfully',
       changes_applied: Object.keys(changes).length > 0
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -382,4 +381,129 @@ function createFallbackSVG(): Uint8Array {
   </svg>`;
   
   return new TextEncoder().encode(fallbackSVG);
+}
+
+// Convert SVG to PNG using Puppeteer
+async function convertSVGToPNG(svgBuffer: Uint8Array): Promise<Uint8Array> {
+  let browser;
+  
+  try {
+    console.log('Starting Puppeteer browser for SVG conversion...');
+    
+    // Launch Puppeteer browser
+    browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    
+    const page = await browser.newPage();
+    
+    // Convert SVG buffer to string
+    const svgString = new TextDecoder().decode(svgBuffer);
+    
+    // Create HTML page with the SVG
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <style>
+            body { margin: 0; padding: 0; }
+            svg { display: block; }
+          </style>
+        </head>
+        <body>
+          ${svgString}
+        </body>
+      </html>
+    `;
+    
+    // Set content and wait for it to load
+    await page.setContent(html);
+    await page.waitForSelector('svg');
+    
+    // Get SVG dimensions for viewport
+    const dimensions = await page.evaluate(() => {
+      const svg = document.querySelector('svg');
+      if (svg) {
+        return {
+          width: svg.getAttribute('width') || svg.viewBox?.baseVal.width || 800,
+          height: svg.getAttribute('height') || svg.viewBox?.baseVal.height || 600
+        };
+      }
+      return { width: 800, height: 600 };
+    });
+    
+    // Set viewport to match SVG dimensions
+    await page.setViewport({
+      width: parseInt(dimensions.width),
+      height: parseInt(dimensions.height)
+    });
+    
+    console.log(`Converting SVG to PNG (${dimensions.width}x${dimensions.height})`);
+    
+    // Take screenshot as PNG
+    const pngBuffer = await page.screenshot({
+      type: 'png',
+      fullPage: true,
+      omitBackground: false
+    });
+    
+    console.log('PNG conversion completed, size:', pngBuffer.length, 'bytes');
+    
+    return new Uint8Array(pngBuffer);
+    
+  } catch (error) {
+    console.error('Error converting SVG to PNG:', error);
+    
+    // Return a fallback PNG (simple colored rectangle)
+    return await createFallbackPNG();
+    
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+}
+
+// Create a fallback PNG for errors
+async function createFallbackPNG(): Promise<Uint8Array> {
+  let browser;
+  
+  try {
+    console.log('Creating fallback PNG...');
+    
+    browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    
+    const page = await browser.newPage();
+    await page.setViewport({ width: 400, height: 300 });
+    
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <body style="margin: 0; padding: 0; background: #f8f9fa; display: flex; align-items: center; justify-content: center; font-family: Arial, sans-serif;">
+          <div style="text-align: center; color: #dc3545;">
+            <h2>Error generating image</h2>
+          </div>
+        </body>
+      </html>
+    `;
+    
+    await page.setContent(html);
+    const pngBuffer = await page.screenshot({ type: 'png', fullPage: true });
+    
+    return new Uint8Array(pngBuffer);
+    
+  } catch (error) {
+    console.error('Error creating fallback PNG:', error);
+    // Return minimal PNG data as last resort
+    return new Uint8Array(0);
+    
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
 }
