@@ -63,7 +63,7 @@ serve(async (req) => {
       .from('api-renders')
       .getPublicUrl(imagePath, {
         transform: {
-          format: 'jpeg',
+          format: 'jpg',
           quality: 90
         }
       });
