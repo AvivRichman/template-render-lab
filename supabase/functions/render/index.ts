@@ -1,11 +1,22 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.2';
-import { Resvg } from "npm:@resvg/resvg-js@2.6.0";
+import { Resvg, initWasm } from "https://esm.sh/@resvg/resvg-js@2.6.0?target=deno";
+import wasmUrl from "https://esm.sh/@resvg/resvg-wasm@2.6.0/index_bg.wasm?url";
+import { encode as encodeJpeg } from "https://esm.sh/@jsquash/jpeg@1.3.1?target=deno";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// WASM initialization
+let wasmReady: Promise<void> | null = null;
+function ensureWasm() {
+  if (!wasmReady) {
+    wasmReady = initWasm(fetch(wasmUrl));
+  }
+  return wasmReady;
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -15,7 +26,10 @@ serve(async (req) => {
   try {
     console.log('Render function - Request received');
     
-    const { template_id, scene_data, user_id } = await req.json();
+    // Initialize WASM before processing
+    await ensureWasm();
+    
+    const { template_id, scene_data, user_id, format = 'png', quality = 80 } = await req.json();
     
     if (!template_id || !scene_data || !user_id) {
       return new Response(JSON.stringify({ error: 'Missing required fields' }), {
@@ -24,7 +38,7 @@ serve(async (req) => {
       });
     }
 
-    console.log('Rendering template:', template_id);
+    console.log('Rendering template:', template_id, 'Format:', format);
 
     // Initialize Supabase client
     const supabase = createClient(
@@ -34,18 +48,20 @@ serve(async (req) => {
 
     console.log('Generating image...');
     
-    // Generate SVG from template scene data
+    // Generate image from template scene data
     const timestamp = Date.now();
-    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.png`;
+    const fileExtension = format === 'jpg' || format === 'jpeg' ? 'jpg' : 'png';
+    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.${fileExtension}`;
+    const contentType = format === 'jpg' || format === 'jpeg' ? 'image/jpeg' : 'image/png';
     
-    // Create PNG from scene data using Resvg
-    const imageBuffer = await generateImageFromSceneData(scene_data);
+    // Create image from scene data using Resvg
+    const imageBuffer = await generateImageFromSceneData(scene_data, format, quality);
     
-    // Upload to storage as PNG
+    // Upload to storage
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('api-renders')
       .upload(imagePath, imageBuffer, {
-        contentType: 'image/png',
+        contentType,
         upsert: true
       });
     
@@ -82,8 +98,8 @@ serve(async (req) => {
   }
 });
 
-// Generate PNG from scene data using Resvg WASM
-async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
+// Generate image from scene data using Resvg WASM
+async function generateImageFromSceneData(sceneData: any, format = 'png', quality = 80): Promise<Uint8Array> {
   try {
     console.log('Scene data received for rendering');
     console.log('Scene data objects count:', sceneData.objects?.length || 0);
@@ -93,7 +109,7 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     const height = sceneData.height || 600;
     const backgroundColor = sceneData.backgroundColor || '#ffffff';
     
-    console.log(`Canvas dimensions: ${width}x${height}, background: ${backgroundColor}`);
+    console.log(`Canvas dimensions: ${width}x${height}, background: ${backgroundColor}, format: ${format}`);
     
     // Create SVG from scene data
     let svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">`;
@@ -117,8 +133,8 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     console.log('Generated SVG length:', svg.length);
     console.log('SVG preview:', svg.substring(0, 500) + '...');
     
-    // Convert SVG to PNG using Resvg WASM
-    console.log('Converting SVG to PNG using Resvg...');
+    // Convert SVG using Resvg WASM
+    console.log('Converting SVG using Resvg...');
     const resvg = new Resvg(svg, {
       background: backgroundColor,
       fitTo: {
@@ -126,13 +142,26 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
         value: width,
       },
       font: {
-        loadSystemFonts: false, // Don't try to load system fonts in Deno
+        loadSystemFonts: false,
       },
     });
     
-    const pngData = resvg.render();
-    const pngBuffer = pngData.asPng();
+    const rendered = resvg.render();
     
+    if (format === 'jpg' || format === 'jpeg') {
+      console.log('Converting to JPEG...');
+      const raw = rendered.asRaw();
+      const jpeg = await encodeJpeg({ 
+        data: raw.data, 
+        width: raw.width, 
+        height: raw.height, 
+        quality: quality / 100 
+      });
+      console.log('JPEG conversion successful, size:', jpeg.length, 'bytes');
+      return jpeg;
+    }
+    
+    const pngBuffer = rendered.asPng();
     console.log('PNG conversion successful, size:', pngBuffer.length, 'bytes');
     return pngBuffer;
     
