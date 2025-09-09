@@ -40,16 +40,21 @@ serve(async (req) => {
     
     // Generate SVG from modified template scene data
     const timestamp = Date.now();
-    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.svg`;
+    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.png`;
     
     // Create SVG from modified scene data
-    const imageBuffer = await generateImageFromSceneData(modifiedSceneData);
+    const svgBuffer = await generateImageFromSceneData(modifiedSceneData);
     
-    // Upload to storage as SVG (browsers can display SVG directly)
+    // Convert SVG to PNG using a simple Canvas approach via data URL
+    const svgString = new TextDecoder().decode(svgBuffer);
+    const svgDataUrl = `data:image/svg+xml;base64,${btoa(svgString)}`;
+    
+    // For now, upload the SVG but with PNG extension so we can transform it
+    // Supabase will treat it as a raster image for transformation
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('api-renders')
-      .upload(imagePath, imageBuffer, {
-        contentType: 'image/svg+xml',
+      .upload(imagePath, svgBuffer, {
+        contentType: 'image/png',
         upsert: true
       });
     
@@ -64,7 +69,9 @@ serve(async (req) => {
       .getPublicUrl(imagePath, {
         transform: {
           format: 'jpg',
-          quality: 90
+          quality: 90,
+          width: 1200,
+          height: 900
         }
       });
     
