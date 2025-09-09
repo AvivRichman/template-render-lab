@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.2';
+import { Resvg } from 'https://esm.sh/@resvg/resvg-js@2.4.1';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -33,18 +34,18 @@ serve(async (req) => {
 
     console.log('Generating image...');
     
-    // Generate SVG from template scene data
+    // Generate PNG from template scene data
     const timestamp = Date.now();
-    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.svg`;
+    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.png`;
     
-    // Create SVG from scene data
+    // Create PNG from scene data (convert SVG to PNG)
     const imageBuffer = await generateImageFromSceneData(scene_data);
     
-    // Upload to storage as SVG (browsers can display SVG directly)
+    // Upload to storage as PNG
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('api-renders')
       .upload(imagePath, imageBuffer, {
-        contentType: 'image/svg+xml',
+        contentType: 'image/png',
         upsert: true
       });
     
@@ -81,7 +82,7 @@ serve(async (req) => {
   }
 });
 
-// Generate SVG from scene data and return it as bytes for upload
+// Generate PNG from scene data by converting SVG to PNG
 async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
   try {
     console.log('Scene data received for rendering');
@@ -116,13 +117,26 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     console.log('Generated SVG length:', svg.length);
     console.log('SVG preview:', svg.substring(0, 500) + '...');
     
-    // Instead of converting to PNG (which is complex in Deno), 
-    // return the SVG as bytes - browsers can display SVG files directly
-    return new TextEncoder().encode(svg);
+    // Convert SVG to PNG using resvg
+    console.log('Converting SVG to PNG...');
+    const resvg = new Resvg(svg, {
+      background: backgroundColor,
+      fitTo: {
+        mode: 'width',
+        value: width,
+      },
+    });
+    
+    const pngData = resvg.render();
+    const pngBuffer = pngData.asPng();
+    
+    console.log('PNG conversion successful, size:', pngBuffer.length);
+    
+    return pngBuffer;
     
   } catch (error) {
     console.error('Error generating image from scene data:', error);
-    return createFallbackSVG();
+    return createFallbackPNG();
   }
 }
 
@@ -302,16 +316,39 @@ function escapeXml(unsafe: string): string {
   });
 }
 
-// Create a simple fallback SVG for errors
-function createFallbackSVG(): Uint8Array {
-  console.log('Creating fallback SVG');
+// Create a simple fallback PNG for errors
+function createFallbackPNG(): Uint8Array {
+  console.log('Creating fallback PNG');
   
-  const fallbackSVG = `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
-    <rect width="100%" height="100%" fill="#f8f9fa"/>
-    <text x="200" y="150" text-anchor="middle" font-family="Arial" font-size="16" fill="#dc3545">
-      Error generating image
-    </text>
-  </svg>`;
-  
-  return new TextEncoder().encode(fallbackSVG);
+  try {
+    const fallbackSVG = `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+      <rect width="100%" height="100%" fill="#f8f9fa"/>
+      <text x="200" y="150" text-anchor="middle" font-family="Arial" font-size="16" fill="#dc3545">
+        Error generating image
+      </text>
+    </svg>`;
+    
+    const resvg = new Resvg(fallbackSVG, {
+      background: '#f8f9fa',
+      fitTo: {
+        mode: 'width',
+        value: 400,
+      },
+    });
+    
+    const pngData = resvg.render();
+    return pngData.asPng();
+  } catch (error) {
+    console.error('Error creating fallback PNG:', error);
+    // Return a minimal valid PNG if resvg fails
+    const redPixelPNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
+    const binaryString = atob(redPixelPNG);
+    const bytes = new Uint8Array(binaryString.length);
+    
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    
+    return bytes;
+  }
 }
