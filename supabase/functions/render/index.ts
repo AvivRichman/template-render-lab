@@ -33,18 +33,18 @@ serve(async (req) => {
 
     console.log('Generating image...');
     
-    // Generate JPEG from template scene data
+    // Generate SVG from template scene data
     const timestamp = Date.now();
-    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.jpeg`;
+    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.svg`;
     
-    // Create JPEG from scene data
+    // Create SVG from scene data
     const imageBuffer = await generateImageFromSceneData(scene_data);
     
-    // Upload to storage as JPEG
+    // Upload to storage as SVG (browsers can display SVG directly)
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('api-renders')
       .upload(imagePath, imageBuffer, {
-        contentType: 'image/jpeg',
+        contentType: 'image/svg+xml',
         upsert: true
       });
     
@@ -81,7 +81,7 @@ serve(async (req) => {
   }
 });
 
-// Generate JPEG from scene data by first creating SVG then converting to JPEG
+// Generate SVG from scene data and return it as bytes for upload
 async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
   try {
     console.log('Scene data received for rendering');
@@ -114,17 +114,15 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     svg += '</svg>';
     
     console.log('Generated SVG length:', svg.length);
-    console.log('Creating JPEG from SVG data...');
+    console.log('SVG preview:', svg.substring(0, 500) + '...');
     
-    // Create a simple JPEG representation
-    const jpegBytes = await createJpegFromSvg(svg, width, height);
-    
-    console.log('Generated JPEG size:', jpegBytes.length, 'bytes');
-    return jpegBytes;
+    // Instead of converting to PNG (which is complex in Deno), 
+    // return the SVG as bytes - browsers can display SVG files directly
+    return new TextEncoder().encode(svg);
     
   } catch (error) {
     console.error('Error generating image from scene data:', error);
-    return createFallbackJPEG();
+    return createFallbackSVG();
   }
 }
 
@@ -304,89 +302,16 @@ function escapeXml(unsafe: string): string {
   });
 }
 
-// Create JPEG from SVG using pure JS approach
-async function createJpegFromSvg(svgString: string, width: number, height: number): Promise<Uint8Array> {
-  try {
-    console.log('Creating JPEG from SVG using pure JS approach...');
-    
-    // Create a data URL from the SVG
-    const svgDataUrl = `data:image/svg+xml;base64,${btoa(svgString)}`;
-    
-    // For now, create a simple JPEG header with basic structure
-    // This creates a minimal valid JPEG file
-    const jpegData = createBasicJpeg(width, height, svgDataUrl);
-    
-    return jpegData;
-    
-  } catch (error) {
-    console.error('Error creating JPEG from SVG:', error);
-    return createFallbackJPEG();
-  }
-}
-
-// Create a basic JPEG with embedded SVG data as base64
-function createBasicJpeg(width: number, height: number, svgDataUrl: string): Uint8Array {
-  // Create a minimal JPEG structure
-  const header = new Uint8Array([
-    0xFF, 0xD8, // SOI (Start of Image)
-    0xFF, 0xE0, // APP0
-    0x00, 0x10, // Length
-    0x4A, 0x46, 0x49, 0x46, 0x00, // "JFIF\0"
-    0x01, 0x01, // Version 1.1
-    0x01, // Units (no units)
-    0x00, 0x48, // X density (72 DPI)
-    0x00, 0x48, // Y density (72 DPI)
-    0x00, 0x00, // Thumbnail width/height
-  ]);
-
-  // Create comment segment with SVG data
-  const comment = `SVG_DATA:${svgDataUrl}`;
-  const commentBytes = new TextEncoder().encode(comment);
-  const commentSegment = new Uint8Array([
-    0xFF, 0xFE, // COM marker
-    ...numberToBytes(commentBytes.length + 2, 2), // Length
-    ...commentBytes
-  ]);
-
-  // Create basic frame data
-  const frameData = new Uint8Array([
-    0xFF, 0xC0, // SOF0 (Start of Frame)
-    0x00, 0x11, // Length
-    0x08, // Precision
-    ...numberToBytes(height, 2), // Height
-    ...numberToBytes(width, 2), // Width
-    0x03, // Number of components
-    0x01, 0x11, 0x00, // Y component
-    0x02, 0x11, 0x01, // Cb component
-    0x03, 0x11, 0x01, // Cr component
-    0xFF, 0xD9 // EOI (End of Image)
-  ]);
-
-  // Combine all segments
-  const result = new Uint8Array(header.length + commentSegment.length + frameData.length);
-  let offset = 0;
-  result.set(header, offset);
-  offset += header.length;
-  result.set(commentSegment, offset);
-  offset += commentSegment.length;
-  result.set(frameData, offset);
-
-  return result;
-}
-
-// Helper function to convert number to bytes
-function numberToBytes(num: number, bytes: number): number[] {
-  const result = [];
-  for (let i = bytes - 1; i >= 0; i--) {
-    result.push((num >> (i * 8)) & 0xFF);
-  }
-  return result;
-}
-
-// Create a simple fallback JPEG for errors
-function createFallbackJPEG(): Uint8Array {
-  console.log('Creating fallback JPEG');
+// Create a simple fallback SVG for errors
+function createFallbackSVG(): Uint8Array {
+  console.log('Creating fallback SVG');
   
-  // Create a minimal valid JPEG file (1x1 white pixel)
-  return createBasicJpeg(1, 1, 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMSIgaGVpZ2h0PSIxIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiNmZmZmZmYiLz48L3N2Zz4=');
+  const fallbackSVG = `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+    <rect width="100%" height="100%" fill="#f8f9fa"/>
+    <text x="200" y="150" text-anchor="middle" font-family="Arial" font-size="16" fill="#dc3545">
+      Error generating image
+    </text>
+  </svg>`;
+  
+  return new TextEncoder().encode(fallbackSVG);
 }
