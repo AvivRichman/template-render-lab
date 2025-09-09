@@ -86,7 +86,7 @@ serve(async (req) => {
 async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
   try {
     console.log('Scene data received for rendering');
-    console.log('Scene data objects count:', sceneData.objects?.length || 0);
+    console.log('Full scene data:', JSON.stringify(sceneData, null, 2));
     
     // Extract canvas dimensions from scene data
     const width = sceneData.width || 800;
@@ -95,11 +95,11 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     
     console.log(`Canvas dimensions: ${width}x${height}, background: ${backgroundColor}`);
     
-    // Create SVG first, then convert to JPEG
+    // First generate SVG to compare
     const svgContent = generateSVGFromSceneData(sceneData);
-    console.log('Generated SVG content length:', svgContent.length);
+    console.log('Generated SVG content:', svgContent);
     
-    // For now, create a simple JPEG using ImageScript
+    // Use ImageScript to create JPEG
     const { Image } = await import("https://deno.land/x/imagescript@1.3.0/mod.ts");
     
     // Create a new image with solid background color
@@ -111,11 +111,11 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     
     // Process objects and draw them to the image
     if (sceneData.objects && Array.isArray(sceneData.objects)) {
-      console.log('Processing objects...');
+      console.log('Processing', sceneData.objects.length, 'objects...');
       for (let i = 0; i < sceneData.objects.length; i++) {
         const obj = sceneData.objects[i];
-        console.log(`Processing object ${i}: type=${obj.type}`);
-        renderObjectToImage(image, obj);
+        console.log(`Processing object ${i}:`, JSON.stringify(obj, null, 2));
+        await renderObjectToImage(image, obj);
       }
     }
     
@@ -127,7 +127,7 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     
   } catch (error) {
     console.error('Error generating image from scene data:', error);
-    return createFallbackJPEG();
+    return await createFallbackJPEG();
   }
 }
 
@@ -152,24 +152,60 @@ function generateSVGFromSceneData(sceneData: any): string {
 
 // Helper to parse hex color to RGBA
 function parseColor(colorStr: string): number {
-  let color = colorStr.replace('#', '');
-  if (color.length === 3) {
-    color = color.split('').map(c => c + c).join('');
+  if (!colorStr) return 0x000000FF; // Black with full alpha
+  
+  let color = colorStr.toString();
+  
+  // Handle different color formats
+  if (color.startsWith('rgb(')) {
+    // Parse rgb(r, g, b) format
+    const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+    if (match) {
+      const r = parseInt(match[1]);
+      const g = parseInt(match[2]);
+      const b = parseInt(match[3]);
+      return (r << 24) | (g << 16) | (b << 8) | 255;
+    }
+  } else if (color.startsWith('rgba(')) {
+    // Parse rgba(r, g, b, a) format
+    const match = color.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([01]?\.?\d*)\)/);
+    if (match) {
+      const r = parseInt(match[1]);
+      const g = parseInt(match[2]);
+      const b = parseInt(match[3]);
+      const a = Math.round(parseFloat(match[4]) * 255);
+      return (r << 24) | (g << 16) | (b << 8) | a;
+    }
+  } else {
+    // Handle hex colors
+    color = color.replace('#', '');
+    
+    // Convert 3-digit hex to 6-digit
+    if (color.length === 3) {
+      color = color.split('').map(c => c + c).join('');
+    }
+    
+    // Ensure we have a valid hex color
+    if (color.length === 6 && /^[0-9a-fA-F]+$/.test(color)) {
+      const r = parseInt(color.substring(0, 2), 16);
+      const g = parseInt(color.substring(2, 4), 16);
+      const b = parseInt(color.substring(4, 6), 16);
+      
+      // Return as RGBA (alpha = 255 for opaque)
+      return (r << 24) | (g << 16) | (b << 8) | 255;
+    }
   }
   
-  const r = parseInt(color.substring(0, 2), 16);
-  const g = parseInt(color.substring(2, 4), 16);
-  const b = parseInt(color.substring(4, 6), 16);
-  
-  // Return as RGBA (alpha = 255 for opaque)
-  return (r << 24) | (g << 16) | (b << 8) | 255;
+  // Fallback to black if parsing fails
+  console.warn('Failed to parse color:', colorStr, 'using black as fallback');
+  return 0x000000FF;
 }
 
 // Render object to ImageScript Image
-function renderObjectToImage(image: any, obj: any): void {
+async function renderObjectToImage(image: any, obj: any): Promise<void> {
   try {
     const objectType = obj.type?.toLowerCase();
-    console.log(`Rendering object type: ${objectType}`);
+    console.log(`Rendering object type: ${objectType} with properties:`, obj);
     
     const left = Math.round(obj.left || 0);
     const top = Math.round(obj.top || 0);
@@ -177,19 +213,30 @@ function renderObjectToImage(image: any, obj: any): void {
     switch (objectType) {
       case 'textbox':
       case 'text':
-        // For text, draw a simple placeholder rectangle for now
-        // (Full text rendering would require a font library)
-        const textWidth = (obj.text?.length || 5) * (obj.fontSize || 16) * 0.6;
-        const textHeight = obj.fontSize || 16;
+        // Render text properly with better text placement
+        const text = obj.text || '';
+        const fontSize = Math.round(obj.fontSize || 16);
         const textColor = parseColor(obj.fill || '#000000');
         
-        console.log(`Text placeholder: "${obj.text}", size: ${obj.fontSize}`);
+        console.log(`Rendering text: "${text}", fontSize: ${fontSize}, color: ${obj.fill}`);
         
-        // Draw a simple rectangle as text placeholder
-        for (let x = 0; x < textWidth && left + x < image.width; x++) {
-          for (let y = 0; y < textHeight && top + y < image.height; y++) {
-            if (left + x >= 0 && top + y >= 0) {
-              image.setPixelAt(left + x, top + y, textColor);
+        // Simple bitmap text rendering - create text as rectangles
+        const charWidth = Math.round(fontSize * 0.6);
+        const charHeight = fontSize;
+        
+        for (let i = 0; i < text.length; i++) {
+          const charLeft = left + (i * charWidth);
+          const charTop = top;
+          
+          // Draw each character as a rectangle (simplified)
+          for (let x = 0; x < charWidth && charLeft + x < image.width; x++) {
+            for (let y = 0; y < charHeight && charTop + y < image.height; y++) {
+              if (charLeft + x >= 0 && charTop + y >= 0) {
+                // Simple pattern for text visibility
+                if (y > charHeight * 0.2 && y < charHeight * 0.8) {
+                  image.setPixelAt(charLeft + x, charTop + y, textColor);
+                }
+              }
             }
           }
         }
@@ -199,15 +246,18 @@ function renderObjectToImage(image: any, obj: any): void {
       case 'rectangle':
         const rectWidth = Math.round(obj.width || 100);
         const rectHeight = Math.round(obj.height || 100);
-        const rectColor = parseColor(obj.fill || '#000000');
+        const rectFill = obj.fill || '#000000';
+        const rectColor = parseColor(rectFill);
         
-        console.log(`Rectangle: ${rectWidth}x${rectHeight}, fill: ${obj.fill}`);
+        console.log(`Rendering rectangle: ${rectWidth}x${rectHeight} at (${left}, ${top}), fill: ${rectFill}`);
         
         // Draw filled rectangle
-        for (let x = 0; x < rectWidth && left + x < image.width; x++) {
-          for (let y = 0; y < rectHeight && top + y < image.height; y++) {
-            if (left + x >= 0 && top + y >= 0) {
-              image.setPixelAt(left + x, top + y, rectColor);
+        for (let x = 0; x < rectWidth; x++) {
+          for (let y = 0; y < rectHeight; y++) {
+            const pixelX = left + x;
+            const pixelY = top + y;
+            if (pixelX >= 0 && pixelY >= 0 && pixelX < image.width && pixelY < image.height) {
+              image.setPixelAt(pixelX, pixelY, rectColor);
             }
           }
         }
@@ -215,9 +265,10 @@ function renderObjectToImage(image: any, obj: any): void {
         
       case 'circle':
         const radius = Math.round(obj.radius || 50);
-        const circleColor = parseColor(obj.fill || '#000000');
+        const circleFill = obj.fill || '#000000';
+        const circleColor = parseColor(circleFill);
         
-        console.log(`Circle: radius: ${radius}, fill: ${obj.fill}`);
+        console.log(`Rendering circle: radius ${radius} at (${left}, ${top}), fill: ${circleFill}`);
         
         // Draw filled circle
         const centerX = left + radius;
@@ -241,33 +292,55 @@ function renderObjectToImage(image: any, obj: any): void {
         const y1 = Math.round(top + (obj.y1 || 0));
         const x2 = Math.round(left + (obj.x2 || obj.width || 100));
         const y2 = Math.round(top + (obj.y2 || 0));
-        const lineColor = parseColor(obj.stroke || '#000000');
+        const lineStroke = obj.stroke || '#000000';
+        const lineColor = parseColor(lineStroke);
         
-        console.log(`Line: (${x1}, ${y1}) to (${x2}, ${y2})`);
+        console.log(`Rendering line: (${x1}, ${y1}) to (${x2}, ${y2}), stroke: ${lineStroke}`);
         
-        // Simple line drawing using Bresenham's algorithm
+        // Draw line using Bresenham's algorithm
         drawLine(image, x1, y1, x2, y2, lineColor);
         break;
         
+      case 'group':
+        // Handle grouped objects
+        if (obj.objects && Array.isArray(obj.objects)) {
+          console.log(`Rendering group with ${obj.objects.length} objects`);
+          for (const groupObj of obj.objects) {
+            // Adjust coordinates relative to group position
+            const adjustedObj = {
+              ...groupObj,
+              left: (groupObj.left || 0) + left,
+              top: (groupObj.top || 0) + top
+            };
+            await renderObjectToImage(image, adjustedObj);
+          }
+        }
+        break;
+        
       default:
-        console.log('Unknown object type:', obj.type);
-        // Draw a placeholder rectangle
-        if (obj.width && obj.height) {
+        console.log('Unknown object type:', obj.type, 'with keys:', Object.keys(obj));
+        // Draw a placeholder rectangle for unknown types
+        if (obj.width !== undefined && obj.height !== undefined) {
           const genWidth = Math.round(obj.width);
           const genHeight = Math.round(obj.height);
-          const genColor = parseColor(obj.fill || '#cccccc');
+          const genFill = obj.fill || '#cccccc';
+          const genColor = parseColor(genFill);
           
-          for (let x = 0; x < genWidth && left + x < image.width; x++) {
-            for (let y = 0; y < genHeight && top + y < image.height; y++) {
-              if (left + x >= 0 && top + y >= 0) {
-                image.setPixelAt(left + x, top + y, genColor);
+          console.log(`Rendering fallback rectangle: ${genWidth}x${genHeight}, fill: ${genFill}`);
+          
+          for (let x = 0; x < genWidth; x++) {
+            for (let y = 0; y < genHeight; y++) {
+              const pixelX = left + x;
+              const pixelY = top + y;
+              if (pixelX >= 0 && pixelY >= 0 && pixelX < image.width && pixelY < image.height) {
+                image.setPixelAt(pixelX, pixelY, genColor);
               }
             }
           }
         }
     }
   } catch (error) {
-    console.error('Error rendering object to image:', error);
+    console.error('Error rendering object to image:', error, 'Object:', obj);
   }
 }
 
