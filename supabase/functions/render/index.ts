@@ -1,22 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.2';
-import { Resvg, initWasm } from "https://esm.sh/@resvg/resvg-js@2.6.2?target=browser";
-import wasmUrl from "https://esm.sh/@resvg/resvg-wasm@2.6.2/index_bg.wasm?url";
-import { encode as encodeJpeg } from "https://esm.sh/@jsquash/jpeg@1.3.1?target=browser";
+import { Resvg } from "https://cdn.skypack.dev/@resvg/resvg-js@2.6.2?dts";
+import { encode as encodeJpeg } from "https://cdn.skypack.dev/@jsquash/jpeg@1.3.1?dts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-// WASM initialization
-let wasmReady: Promise<void> | null = null;
-function ensureWasm() {
-  if (!wasmReady) {
-    wasmReady = initWasm(fetch(wasmUrl));
-  }
-  return wasmReady;
-}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -25,9 +15,6 @@ serve(async (req) => {
 
   try {
     console.log('Render function - Request received');
-    
-    // Initialize WASM before processing
-    await ensureWasm();
     
     const { template_id, scene_data, user_id, format = 'png', quality = 80 } = await req.json();
     
