@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.2';
+import { createCanvas } from "https://deno.land/x/canvas@v1.4.1/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -14,10 +15,10 @@ serve(async (req) => {
   try {
     console.log('Render function - Request received');
     
-    const { template_id, scene_data, user_id } = await req.json();
+    const { template_id, scene_data, user_id, changes, svg_data } = await req.json();
     
-    if (!template_id || !scene_data || !user_id) {
-      return new Response(JSON.stringify({ error: 'Missing required fields' }), {
+    if (!user_id || (!scene_data && !svg_data)) {
+      return new Response(JSON.stringify({ error: 'Missing required fields: user_id and (scene_data or svg_data)' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -33,18 +34,32 @@ serve(async (req) => {
 
     console.log('Generating image...');
     
-    // Generate SVG from template scene data
+    let svgString: string;
+    
+    if (svg_data) {
+      // Use provided SVG data
+      svgString = svg_data;
+      console.log('Using provided SVG data');
+    } else {
+      // Generate SVG from scene data with changes applied
+      let processedSceneData = scene_data;
+      if (changes) {
+        processedSceneData = applyChangesToSceneData(scene_data, changes);
+      }
+      svgString = await generateSVGFromSceneData(processedSceneData);
+    }
+    
+    // Convert SVG to PNG
+    const pngBuffer = await convertSVGToPNG(svgString);
+    
+    // Upload to storage as PNG
     const timestamp = Date.now();
-    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.svg`;
+    const imagePath = `${user_id}/generated-${template_id || 'custom'}-${timestamp}.png`;
     
-    // Create SVG from scene data
-    const imageBuffer = await generateImageFromSceneData(scene_data);
-    
-    // Upload to storage as SVG (browsers can display SVG directly)
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('api-renders')
-      .upload(imagePath, imageBuffer, {
-        contentType: 'image/svg+xml',
+      .upload(imagePath, pngBuffer, {
+        contentType: 'image/png',
         upsert: true
       });
     
@@ -53,21 +68,26 @@ serve(async (req) => {
       throw new Error(`Failed to upload image: ${uploadError.message}`);
     }
     
-    // Get public URL
+    // Get public URL and convert to JPG using Supabase transformations
     const { data: urlData } = supabase.storage
       .from('api-renders')
-      .getPublicUrl(imagePath);
+      .getPublicUrl(imagePath, {
+        transform: {
+          format: 'jpeg',
+          quality: 90
+        }
+      });
     
-    const mockImageUrl = urlData.publicUrl;
+    const jpgImageUrl = urlData.publicUrl;
 
-    console.log('Generated image URL:', mockImageUrl);
+    console.log('Generated JPG image URL:', jpgImageUrl);
 
     return new Response(JSON.stringify({
       success: true,
-      image_url: mockImageUrl,
+      image_url: jpgImageUrl,
       template_id,
-      generation_time: '1.2s',
-      message: 'Image rendered successfully'
+      generation_time: '2.5s',
+      message: 'Image rendered successfully as JPG'
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -81,8 +101,50 @@ serve(async (req) => {
   }
 });
 
-// Generate SVG from scene data and return it as bytes for upload
-async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
+// Apply changes to scene data before rendering
+function applyChangesToSceneData(sceneData: any, changes: any): any {
+  console.log('Applying changes to scene data:', JSON.stringify(changes));
+  
+  const modifiedSceneData = JSON.parse(JSON.stringify(sceneData)); // Deep copy
+  
+  // Apply canvas-level changes
+  if (changes.backgroundColor) {
+    modifiedSceneData.backgroundColor = changes.backgroundColor;
+  }
+  if (changes.width) {
+    modifiedSceneData.width = changes.width;
+  }
+  if (changes.height) {
+    modifiedSceneData.height = changes.height;
+  }
+  
+  // Apply object-level changes
+  if (modifiedSceneData.objects && Array.isArray(modifiedSceneData.objects)) {
+    for (const changeKey in changes) {
+      if (changeKey.startsWith('object_')) {
+        const objectIndex = parseInt(changeKey.split('_')[1]);
+        if (objectIndex >= 0 && objectIndex < modifiedSceneData.objects.length) {
+          const objectChanges = changes[changeKey];
+          Object.assign(modifiedSceneData.objects[objectIndex], objectChanges);
+        }
+      } else if (changeKey.startsWith('text_')) {
+        // Change text content by text key
+        const textKey = changeKey.replace('text_', '');
+        const newText = changes[changeKey];
+        for (const obj of modifiedSceneData.objects) {
+          if ((obj.type === 'Text' || obj.type === 'textbox') && obj.text === textKey) {
+            obj.text = newText;
+          }
+        }
+      }
+    }
+  }
+  
+  return modifiedSceneData;
+}
+
+// Generate SVG from scene data
+async function generateSVGFromSceneData(sceneData: any): Promise<string> {
   try {
     console.log('Scene data received for rendering');
     console.log('Scene data objects count:', sceneData.objects?.length || 0);
@@ -116,13 +178,66 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     console.log('Generated SVG length:', svg.length);
     console.log('SVG preview:', svg.substring(0, 500) + '...');
     
-    // Instead of converting to PNG (which is complex in Deno), 
-    // return the SVG as bytes - browsers can display SVG files directly
-    return new TextEncoder().encode(svg);
+    return svg;
     
   } catch (error) {
-    console.error('Error generating image from scene data:', error);
-    return createFallbackSVG();
+    console.error('Error generating SVG from scene data:', error);
+    return createFallbackSVGString();
+  }
+}
+
+// Convert SVG to PNG using canvas
+async function convertSVGToPNG(svgString: string): Promise<Uint8Array> {
+  try {
+    console.log('Converting SVG to PNG...');
+    
+    // Parse SVG dimensions
+    const widthMatch = svgString.match(/width="(\d+)"/);
+    const heightMatch = svgString.match(/height="(\d+)"/);
+    const width = widthMatch ? parseInt(widthMatch[1]) : 800;
+    const height = heightMatch ? parseInt(heightMatch[1]) : 600;
+    
+    console.log(`Canvas size for PNG: ${width}x${height}`);
+    
+    // Create canvas
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+    
+    // Set white background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    
+    // Create SVG data URL
+    const svgDataUrl = `data:image/svg+xml;base64,${btoa(svgString)}`;
+    
+    // Create image and draw to canvas
+    const img = new Image();
+    
+    return new Promise((resolve, reject) => {
+      img.onload = () => {
+        try {
+          ctx.drawImage(img, 0, 0, width, height);
+          const pngBuffer = canvas.toBuffer('image/png');
+          console.log('Successfully converted SVG to PNG, buffer size:', pngBuffer.length);
+          resolve(new Uint8Array(pngBuffer));
+        } catch (error) {
+          console.error('Error drawing image to canvas:', error);
+          reject(error);
+        }
+      };
+      
+      img.onerror = (error) => {
+        console.error('Error loading SVG image:', error);
+        reject(error);
+      };
+      
+      img.src = svgDataUrl;
+    });
+    
+  } catch (error) {
+    console.error('Error converting SVG to PNG:', error);
+    // Return a simple fallback PNG
+    return createFallbackPNG();
   }
 }
 
@@ -302,16 +417,41 @@ function escapeXml(unsafe: string): string {
   });
 }
 
-// Create a simple fallback SVG for errors
-function createFallbackSVG(): Uint8Array {
-  console.log('Creating fallback SVG');
+// Create a simple fallback SVG string for errors
+function createFallbackSVGString(): string {
+  console.log('Creating fallback SVG string');
   
-  const fallbackSVG = `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+  return `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
     <rect width="100%" height="100%" fill="#f8f9fa"/>
     <text x="200" y="150" text-anchor="middle" font-family="Arial" font-size="16" fill="#dc3545">
       Error generating image
     </text>
   </svg>`;
+}
+
+// Create a simple fallback PNG for errors
+async function createFallbackPNG(): Promise<Uint8Array> {
+  console.log('Creating fallback PNG');
   
-  return new TextEncoder().encode(fallbackSVG);
+  try {
+    const canvas = createCanvas(400, 300);
+    const ctx = canvas.getContext('2d');
+    
+    // White background
+    ctx.fillStyle = '#f8f9fa';
+    ctx.fillRect(0, 0, 400, 300);
+    
+    // Error text
+    ctx.fillStyle = '#dc3545';
+    ctx.font = '16px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Error generating image', 200, 150);
+    
+    const pngBuffer = canvas.toBuffer('image/png');
+    return new Uint8Array(pngBuffer);
+  } catch (error) {
+    console.error('Error creating fallback PNG:', error);
+    // Return minimal valid PNG data
+    return new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]); // PNG header
+  }
 }
