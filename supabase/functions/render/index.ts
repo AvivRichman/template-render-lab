@@ -13,16 +13,8 @@ serve(async (req) => {
 
   try {
     console.log('Render function - Request received');
-    const url = new URL(req.url);
     
-    // Handle transformation requests (GET with query params)
-    if (req.method === 'GET') {
-      return handleTransformRequest(req, url);
-    }
-    
-    // Handle original render requests (POST with JSON body)
-    const requestBody = await req.json();
-    const { template_id, scene_data, user_id, format = 'jpg', width, height, quality, resize, bg } = requestBody;
+    const { template_id, scene_data, user_id } = await req.json();
     
     if (!template_id || !scene_data || !user_id) {
       return new Response(JSON.stringify({ error: 'Missing required fields' }), {
@@ -48,7 +40,7 @@ serve(async (req) => {
     // Create SVG from scene data
     const imageBuffer = await generateImageFromSceneData(scene_data);
     
-    // Upload to storage as SVG
+    // Upload to storage as SVG (browsers can display SVG directly)
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('api-renders')
       .upload(imagePath, imageBuffer, {
@@ -61,39 +53,21 @@ serve(async (req) => {
       throw new Error(`Failed to upload image: ${uploadError.message}`);
     }
     
-    // Parse transformation parameters from request body 
-    const finalFormat = format || 'jpg';
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from('api-renders')
+      .getPublicUrl(imagePath);
     
-    // Create search params for transform functions
-    const transformParams = new URLSearchParams();
-    if (finalFormat !== 'svg') transformParams.set('format', finalFormat);
-    if (width) transformParams.set('width', width.toString());
-    if (height) transformParams.set('height', height.toString());
-    if (quality) transformParams.set('quality', quality.toString());
-    if (resize) transformParams.set('resize', resize);
-    if (bg) transformParams.set('bg', bg);
-    
-    let finalUrl: string;
-    
-    if (finalFormat === 'svg') {
-      // Return SVG URL directly
-      const { data: urlData } = supabase.storage
-        .from('api-renders')
-        .getPublicUrl(imagePath);
-      finalUrl = urlData.publicUrl;
-    } else {
-      // Generate transformed URL for PNG/JPG
-      finalUrl = getTransformedUrl(supabase, imagePath, transformParams);
-    }
+    const mockImageUrl = urlData.publicUrl;
 
-    console.log('Generated image URL:', finalUrl);
+    console.log('Generated image URL:', mockImageUrl);
 
     return new Response(JSON.stringify({
       success: true,
-      image_url: finalUrl,
+      image_url: mockImageUrl,
       template_id,
       generation_time: '1.2s',
-      message: `Image rendered successfully as ${finalFormat.toUpperCase()}`
+      message: 'Image rendered successfully'
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -106,120 +80,6 @@ serve(async (req) => {
     });
   }
 });
-
-// Handle transformation requests (GET with query params)
-async function handleTransformRequest(req: Request, url: URL): Promise<Response> {
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-  );
-  
-  const pathParam = url.searchParams.get('path');
-  if (!pathParam) {
-    return new Response(JSON.stringify({ error: 'Missing path parameter' }), {
-      status: 400,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
-  
-  const proxy = url.searchParams.get('proxy') === 'true';
-  
-  if (proxy) {
-    // Proxy the transformed image binary
-    return proxyTransformedImage(supabase, pathParam, url.searchParams);
-  } else {
-    // Redirect to transformed URL
-    const transformedUrl = getTransformedUrl(supabase, pathParam, url.searchParams);
-    return new Response(null, {
-      status: 302,
-      headers: {
-        ...corsHeaders,
-        'Location': transformedUrl
-      }
-    });
-  }
-}
-
-// Generate transformed URL from SVG path and query parameters
-function getTransformedUrl(supabase: any, imagePath: string, searchParams: URLSearchParams): string {
-  const format = searchParams.get('format') || 'png';
-  const width = searchParams.get('width') ? Math.min(parseInt(searchParams.get('width')!), 4000) : undefined;
-  const height = searchParams.get('height') ? Math.min(parseInt(searchParams.get('height')!), 4000) : undefined;
-  const quality = searchParams.get('quality') ? Math.max(1, Math.min(100, parseInt(searchParams.get('quality')!))) : (format === 'jpg' ? 85 : undefined);
-  const resize = searchParams.get('resize') || undefined;
-  const bg = searchParams.get('bg') || (format === 'jpg' ? 'ffffff' : undefined);
-  
-  const transform: any = { format };
-  
-  if (width) transform.width = width;
-  if (height) transform.height = height;
-  if (quality && (format === 'jpg' || format === 'jpeg')) transform.quality = quality;
-  if (resize) transform.resize = resize;
-  if (bg && format === 'jpg') {
-    // Ensure bg color is properly formatted (hex without #)
-    const cleanBg = bg.replace('#', '');
-    if (/^[0-9A-Fa-f]{6}$/.test(cleanBg)) {
-      transform.background = cleanBg;
-    }
-  }
-  
-  console.log('Transform options:', transform);
-  
-  const { data } = supabase.storage
-    .from('api-renders')
-    .getPublicUrl(imagePath, { transform });
-    
-  return data.publicUrl;
-}
-
-// Proxy transformed image binary with correct Content-Type
-async function proxyTransformedImage(supabase: any, imagePath: string, searchParams: URLSearchParams): Promise<Response> {
-  const format = searchParams.get('format') || 'png';
-  const width = searchParams.get('width') ? Math.min(parseInt(searchParams.get('width')!), 4000) : undefined;
-  const height = searchParams.get('height') ? Math.min(parseInt(searchParams.get('height')!), 4000) : undefined;
-  const quality = searchParams.get('quality') ? Math.max(1, Math.min(100, parseInt(searchParams.get('quality')!))) : (format === 'jpg' ? 85 : undefined);
-  const resize = searchParams.get('resize') || undefined;
-  const bg = searchParams.get('bg') || (format === 'jpg' ? 'ffffff' : undefined);
-  
-  const transform: any = { format };
-  
-  if (width) transform.width = width;
-  if (height) transform.height = height;
-  if (quality && (format === 'jpg' || format === 'jpeg')) transform.quality = quality;
-  if (resize) transform.resize = resize;
-  if (bg && format === 'jpg') {
-    const cleanBg = bg.replace('#', '');
-    if (/^[0-9A-Fa-f]{6}$/.test(cleanBg)) {
-      transform.background = cleanBg;
-    }
-  }
-  
-  console.log('Downloading with transform:', transform);
-  
-  const { data, error } = await supabase.storage
-    .from('api-renders')
-    .download(imagePath, { transform });
-    
-  if (error) {
-    console.error('Download error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
-  
-  const contentType = format === 'jpg' || format === 'jpeg' ? 'image/jpeg' : 
-                     format === 'png' ? 'image/png' : 
-                     'image/svg+xml';
-  
-  return new Response(data, {
-    headers: {
-      ...corsHeaders,
-      'Content-Type': contentType,
-      'Cache-Control': 'public, max-age=31536000'
-    }
-  });
-}
 
 // Generate SVG from scene data and return it as bytes for upload
 async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
