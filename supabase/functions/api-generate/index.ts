@@ -84,21 +84,24 @@ serve(async (req) => {
 
     // Apply overrides to template scene data
     let modifiedSceneData = { ...template.scene_data };
+    let hasChanges = false;
     
     if (overrides && typeof overrides === 'object') {
       // Apply text overrides to fabric objects
       if (modifiedSceneData.objects) {
         modifiedSceneData.objects = modifiedSceneData.objects.map((obj: any) => {
-          if (obj.type === 'text' || obj.type === 'i-text') {
+          if (obj.text !== undefined) {
             // Check if there's an override for this text object
-            const textKey = obj.text?.toLowerCase().replace(/\s+/g, '_');
+            const textKey = obj.text?.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
             if (textKey && overrides[textKey]) {
+              hasChanges = true;
               return { ...obj, text: overrides[textKey] };
             }
             
             // Also check for generic overrides like title, subtitle, etc.
             for (const [key, value] of Object.entries(overrides)) {
               if (obj.text?.toLowerCase().includes(key.toLowerCase())) {
+                hasChanges = true;
                 return { ...obj, text: value };
               }
             }
@@ -106,12 +109,36 @@ serve(async (req) => {
           
           // Apply style overrides if provided
           if (overrides.styles && overrides.styles[obj.id]) {
+            hasChanges = true;
             return { ...obj, ...overrides.styles[obj.id] };
           }
           
           return obj;
         });
       }
+    }
+
+    // Update the template in the database if there are changes
+    if (hasChanges) {
+      console.log('Updating template scene_data in database');
+      const { error: updateError } = await supabase
+        .from('templates')
+        .update({ 
+          scene_data: modifiedSceneData,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', template_id)
+        .eq('user_id', user.id);
+
+      if (updateError) {
+        console.error('Error updating template:', updateError);
+        return new Response(JSON.stringify({ error: 'Failed to update template' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      console.log('Template updated successfully');
     }
 
     console.log('Scene data modified, calling render function');
