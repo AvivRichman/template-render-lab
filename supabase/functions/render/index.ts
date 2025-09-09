@@ -14,7 +14,7 @@ serve(async (req) => {
   try {
     console.log('Render function - Request received');
     
-    const { template_id, scene_data, user_id } = await req.json();
+    const { template_id, scene_data, user_id, changes = {} } = await req.json();
     
     if (!template_id || !scene_data || !user_id) {
       return new Response(JSON.stringify({ error: 'Missing required fields' }), {
@@ -22,6 +22,8 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    console.log('Changes to apply:', changes);
 
     console.log('Rendering template:', template_id);
 
@@ -33,12 +35,15 @@ serve(async (req) => {
 
     console.log('Generating image...');
     
-    // Generate SVG from template scene data
+    // Apply changes to scene data
+    const modifiedSceneData = applyChangesToSceneData(scene_data, changes);
+    
+    // Generate SVG from modified template scene data
     const timestamp = Date.now();
     const imagePath = `${user_id}/generated-${template_id}-${timestamp}.svg`;
     
-    // Create SVG from scene data
-    const imageBuffer = await generateImageFromSceneData(scene_data);
+    // Create SVG from modified scene data
+    const imageBuffer = await generateImageFromSceneData(modifiedSceneData);
     
     // Upload to storage as SVG (browsers can display SVG directly)
     const { data: uploadData, error: uploadError } = await supabase.storage
@@ -53,21 +58,27 @@ serve(async (req) => {
       throw new Error(`Failed to upload image: ${uploadError.message}`);
     }
     
-    // Get public URL
+    // Get public URL with JPG transformation
     const { data: urlData } = supabase.storage
       .from('api-renders')
-      .getPublicUrl(imagePath);
+      .getPublicUrl(imagePath, {
+        transform: {
+          format: 'jpeg',
+          quality: 90
+        }
+      });
     
-    const mockImageUrl = urlData.publicUrl;
+    const jpegImageUrl = urlData.publicUrl;
 
-    console.log('Generated image URL:', mockImageUrl);
+    console.log('Generated JPG image URL:', jpegImageUrl);
 
     return new Response(JSON.stringify({
       success: true,
-      image_url: mockImageUrl,
+      image_url: jpegImageUrl,
       template_id,
       generation_time: '1.2s',
-      message: 'Image rendered successfully'
+      message: 'JPG image rendered successfully',
+      changes_applied: Object.keys(changes).length > 0
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -80,6 +91,56 @@ serve(async (req) => {
     });
   }
 });
+
+// Apply changes to scene data objects
+function applyChangesToSceneData(sceneData: any, changes: any): any {
+  if (!changes || Object.keys(changes).length === 0) {
+    console.log('No changes to apply');
+    return sceneData;
+  }
+
+  const modifiedSceneData = JSON.parse(JSON.stringify(sceneData)); // Deep clone
+  
+  console.log('Applying changes to scene data');
+  
+  // Apply changes to objects that match the criteria
+  if (modifiedSceneData.objects && Array.isArray(modifiedSceneData.objects)) {
+    modifiedSceneData.objects = modifiedSceneData.objects.map((obj: any, index: number) => {
+      // Apply changes by object index
+      if (changes[`object_${index}`]) {
+        const objectChanges = changes[`object_${index}`];
+        console.log(`Applying changes to object ${index}:`, objectChanges);
+        return { ...obj, ...objectChanges };
+      }
+      
+      // Apply changes by object type and text content (for text objects)
+      if (obj.type === 'textbox' || obj.type === 'text') {
+        if (changes.text && changes.text[obj.text]) {
+          const textChanges = changes.text[obj.text];
+          console.log(`Applying text changes to "${obj.text}":`, textChanges);
+          return { ...obj, ...textChanges };
+        }
+      }
+      
+      // Apply global changes to all objects of a specific type
+      if (changes[obj.type]) {
+        const typeChanges = changes[obj.type];
+        console.log(`Applying type changes to ${obj.type}:`, typeChanges);
+        return { ...obj, ...typeChanges };
+      }
+      
+      return obj;
+    });
+  }
+  
+  // Apply canvas-level changes
+  if (changes.canvas) {
+    console.log('Applying canvas changes:', changes.canvas);
+    Object.assign(modifiedSceneData, changes.canvas);
+  }
+  
+  return modifiedSceneData;
+}
 
 // Generate SVG from scene data and return it as bytes for upload
 async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
