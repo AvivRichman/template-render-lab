@@ -379,17 +379,3 @@ function createFallbackSVG(): Uint8Array {
   
   return new TextEncoder().encode(fallbackSVG);
 }
-
-// Create a simple fallback SVG for errors
-function createFallbackSVG(): Uint8Array {
-  console.log('Creating fallback SVG');
-  
-  const fallbackSVG = `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
-    <rect width="100%" height="100%" fill="#f8f9fa"/>
-    <text x="200" y="150" text-anchor="middle" font-family="Arial" font-size="16" fill="#dc3545">
-      Error generating image
-    </text>
-  </svg>`;
-  
-  return new TextEncoder().encode(fallbackSVG);
-}
