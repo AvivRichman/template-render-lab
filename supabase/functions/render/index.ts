@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.2';
-import { Resvg } from "npm:@resvg/resvg-js@2.6.0";
+import { Resvg } from "https://esm.sh/@resvg/resvg-wasm@2.6.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -33,6 +33,9 @@ serve(async (req) => {
     );
 
     console.log('Generating image...');
+    
+    // Initialize Resvg WASM
+    await init();
     
     // Generate SVG from template scene data
     const timestamp = Date.now();
