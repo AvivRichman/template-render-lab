@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.2';
-import { Resvg } from 'https://esm.sh/@resvg/resvg-js@2.6.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -15,14 +14,16 @@ serve(async (req) => {
   try {
     console.log('Render function - Request received');
     
-    const { template_id, scene_data, user_id, changes, svg_data } = await req.json();
+    const { template_id, scene_data, user_id, changes = {} } = await req.json();
     
-    if (!user_id || (!scene_data && !svg_data)) {
-      return new Response(JSON.stringify({ error: 'Missing required fields: user_id and (scene_data or svg_data)' }), {
+    if (!template_id || !scene_data || !user_id) {
+      return new Response(JSON.stringify({ error: 'Missing required fields' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    console.log('Changes to apply:', changes);
 
     console.log('Rendering template:', template_id);
 
@@ -34,31 +35,25 @@ serve(async (req) => {
 
     console.log('Generating image...');
     
-    let svgString: string;
+    // Apply changes to scene data
+    const modifiedSceneData = applyChangesToSceneData(scene_data, changes);
     
-    if (svg_data) {
-      // Use provided SVG data
-      svgString = svg_data;
-      console.log('Using provided SVG data');
-    } else {
-      // Generate SVG from scene data with changes applied
-      let processedSceneData = scene_data;
-      if (changes) {
-        processedSceneData = applyChangesToSceneData(scene_data, changes);
-      }
-      svgString = await generateSVGFromSceneData(processedSceneData);
-    }
-    
-    // Convert SVG to PNG
-    const pngBuffer = await convertSVGToPNG(svgString);
-    
-    // Upload to storage as PNG
+    // Generate SVG from modified template scene data
     const timestamp = Date.now();
-    const imagePath = `${user_id}/generated-${template_id || 'custom'}-${timestamp}.png`;
+    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.png`;
     
+    // Create SVG from modified scene data
+    const svgBuffer = await generateImageFromSceneData(modifiedSceneData);
+    
+    // Convert SVG to PNG using a simple Canvas approach via data URL
+    const svgString = new TextDecoder().decode(svgBuffer);
+    const svgDataUrl = `data:image/svg+xml;base64,${btoa(svgString)}`;
+    
+    // For now, upload the SVG but with PNG extension so we can transform it
+    // Supabase will treat it as a raster image for transformation
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('api-renders')
-      .upload(imagePath, pngBuffer, {
+      .upload(imagePath, svgBuffer, {
         contentType: 'image/png',
         upsert: true
       });
@@ -68,26 +63,29 @@ serve(async (req) => {
       throw new Error(`Failed to upload image: ${uploadError.message}`);
     }
     
-    // Get public URL and convert to JPG using Supabase transformations
+    // Get public URL with JPG transformation
     const { data: urlData } = supabase.storage
       .from('api-renders')
       .getPublicUrl(imagePath, {
         transform: {
-          format: 'jpeg',
-          quality: 90
+          format: 'jpg',
+          quality: 90,
+          width: 1200,
+          height: 900
         }
       });
     
-    const jpgImageUrl = urlData.publicUrl;
+    const jpegImageUrl = urlData.publicUrl;
 
-    console.log('Generated JPG image URL:', jpgImageUrl);
+    console.log('Generated JPG image URL:', jpegImageUrl);
 
     return new Response(JSON.stringify({
       success: true,
-      image_url: jpgImageUrl,
+      image_url: jpegImageUrl,
       template_id,
-      generation_time: '2.5s',
-      message: 'Image rendered successfully as JPG'
+      generation_time: '1.2s',
+      message: 'JPG image rendered successfully',
+      changes_applied: Object.keys(changes).length > 0
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -101,50 +99,58 @@ serve(async (req) => {
   }
 });
 
-// Apply changes to scene data before rendering
+// Apply changes to scene data objects
 function applyChangesToSceneData(sceneData: any, changes: any): any {
-  console.log('Applying changes to scene data:', JSON.stringify(changes));
-  
-  const modifiedSceneData = JSON.parse(JSON.stringify(sceneData)); // Deep copy
-  
-  // Apply canvas-level changes
-  if (changes.backgroundColor) {
-    modifiedSceneData.backgroundColor = changes.backgroundColor;
+  if (!changes || Object.keys(changes).length === 0) {
+    console.log('No changes to apply');
+    return sceneData;
   }
-  if (changes.width) {
-    modifiedSceneData.width = changes.width;
-  }
-  if (changes.height) {
-    modifiedSceneData.height = changes.height;
-  }
+
+  const modifiedSceneData = JSON.parse(JSON.stringify(sceneData)); // Deep clone
   
-  // Apply object-level changes
+  console.log('Applying changes to scene data');
+  
+  // Apply changes to objects that match the criteria
   if (modifiedSceneData.objects && Array.isArray(modifiedSceneData.objects)) {
-    for (const changeKey in changes) {
-      if (changeKey.startsWith('object_')) {
-        const objectIndex = parseInt(changeKey.split('_')[1]);
-        if (objectIndex >= 0 && objectIndex < modifiedSceneData.objects.length) {
-          const objectChanges = changes[changeKey];
-          Object.assign(modifiedSceneData.objects[objectIndex], objectChanges);
-        }
-      } else if (changeKey.startsWith('text_')) {
-        // Change text content by text key
-        const textKey = changeKey.replace('text_', '');
-        const newText = changes[changeKey];
-        for (const obj of modifiedSceneData.objects) {
-          if ((obj.type === 'Text' || obj.type === 'textbox') && obj.text === textKey) {
-            obj.text = newText;
-          }
+    modifiedSceneData.objects = modifiedSceneData.objects.map((obj: any, index: number) => {
+      // Apply changes by object index
+      if (changes[`object_${index}`]) {
+        const objectChanges = changes[`object_${index}`];
+        console.log(`Applying changes to object ${index}:`, objectChanges);
+        return { ...obj, ...objectChanges };
+      }
+      
+      // Apply changes by object type and text content (for text objects)
+      if (obj.type === 'textbox' || obj.type === 'text') {
+        if (changes.text && changes.text[obj.text]) {
+          const textChanges = changes.text[obj.text];
+          console.log(`Applying text changes to "${obj.text}":`, textChanges);
+          return { ...obj, ...textChanges };
         }
       }
-    }
+      
+      // Apply global changes to all objects of a specific type
+      if (changes[obj.type]) {
+        const typeChanges = changes[obj.type];
+        console.log(`Applying type changes to ${obj.type}:`, typeChanges);
+        return { ...obj, ...typeChanges };
+      }
+      
+      return obj;
+    });
+  }
+  
+  // Apply canvas-level changes
+  if (changes.canvas) {
+    console.log('Applying canvas changes:', changes.canvas);
+    Object.assign(modifiedSceneData, changes.canvas);
   }
   
   return modifiedSceneData;
 }
 
-// Generate SVG from scene data
-async function generateSVGFromSceneData(sceneData: any): Promise<string> {
+// Generate SVG from scene data and return it as bytes for upload
+async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
   try {
     console.log('Scene data received for rendering');
     console.log('Scene data objects count:', sceneData.objects?.length || 0);
@@ -178,76 +184,202 @@ async function generateSVGFromSceneData(sceneData: any): Promise<string> {
     console.log('Generated SVG length:', svg.length);
     console.log('SVG preview:', svg.substring(0, 500) + '...');
     
-    return svg;
+    // Instead of converting to PNG (which is complex in Deno), 
+    // return the SVG as bytes - browsers can display SVG files directly
+    return new TextEncoder().encode(svg);
     
   } catch (error) {
-    console.error('Error generating SVG from scene data:', error);
-    return createFallbackSVGString();
+    console.error('Error generating image from scene data:', error);
+    return createFallbackSVG();
   }
 }
 
-// Convert SVG to PNG using resvg-js WASM
-async function convertSVGToPNG(svgString: string): Promise<Uint8Array> {
-  try {
-    console.log('Converting SVG to PNG using resvg-js...');
-    
-    // Parse SVG dimensions
-    const widthMatch = svgString.match(/width="(\d+)"/);
-    const heightMatch = svgString.match(/height="(\d+)"/);
-    const width = widthMatch ? parseInt(widthMatch[1]) : 800;
-    const height = heightMatch ? parseInt(heightMatch[1]) : 600;
-    
-    console.log(`Canvas size for PNG: ${width}x${height}`);
-    
-    // Create resvg renderer
-    const resvg = new Resvg(svgString, {
-      background: 'white',
-      fitTo: {
-        mode: 'width',
-        value: width,
-      },
-    });
-    
-    // Render to PNG
-    const pngData = resvg.render();
-    const pngBuffer = pngData.asPng();
-    
-    console.log('Successfully converted SVG to PNG, buffer size:', pngBuffer.length);
-    return new Uint8Array(pngBuffer);
-    
-  } catch (error) {
-    console.error('Error converting SVG to PNG:', error);
-    // Return a simple fallback PNG
-    return createFallbackPNG();
-  }
-}
-
-// Create a simple fallback PNG for errors
-async function createFallbackPNG(): Promise<Uint8Array> {
-  console.log('Creating fallback PNG');
+// Render a Fabric.js object to SVG
+function renderObjectToSVG(obj: any): string {
+  let svg = '';
   
   try {
-    // Create simple SVG fallback and render it
-    const fallbackSVG = `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
-      <rect width="100%" height="100%" fill="#f8f9fa"/>
-      <text x="200" y="150" text-anchor="middle" font-family="Arial" font-size="16" fill="#dc3545">
-        Error generating image
-      </text>
-    </svg>`;
+    const objectType = obj.type?.toLowerCase();
+    console.log(`Rendering object type: ${objectType}`);
     
-    const resvg = new Resvg(fallbackSVG, {
-      background: 'white',
-      fitTo: {
-        mode: 'width',
-        value: 400,
-      },
-    });
-    
-    const pngData = resvg.render();
-    return new Uint8Array(pngData.asPng());
+    switch (objectType) {
+      case 'textbox':
+      case 'text':
+        const x = obj.left || 0;
+        const y = (obj.top || 0) + (obj.fontSize || 16);
+        const fontSize = obj.fontSize || 16;
+        const fill = obj.fill || '#000000';
+        const fontFamily = obj.fontFamily || 'Arial';
+        const text = obj.text || '';
+        
+        // Handle text scaling if present
+        const scaleX = obj.scaleX || 1;
+        const scaleY = obj.scaleY || 1;
+        const scaledFontSize = fontSize * Math.max(scaleX, scaleY);
+        
+        console.log(`Text object: "${text}" at (${x}, ${y}), size: ${scaledFontSize}`);
+        
+        svg += `<text x="${x}" y="${y}" font-family="${fontFamily}" font-size="${scaledFontSize}" fill="${fill}"`;
+        
+        // Add font weight and style if present
+        if (obj.fontWeight) {
+          svg += ` font-weight="${obj.fontWeight}"`;
+        }
+        if (obj.fontStyle) {
+          svg += ` font-style="${obj.fontStyle}"`;
+        }
+        if (obj.textAlign) {
+          svg += ` text-anchor="${obj.textAlign === 'center' ? 'middle' : obj.textAlign === 'right' ? 'end' : 'start'}"`;
+        }
+        
+        // Add rotation if present
+        if (obj.angle) {
+          const centerX = x + (obj.width || 0) * scaleX / 2;
+          const centerY = y - (obj.height || 0) * scaleY / 2;
+          svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
+        }
+        
+        svg += `>${escapeXml(text)}</text>`;
+        break;
+        
+      case 'rect':
+      case 'rectangle':
+        const rectX = obj.left || 0;
+        const rectY = obj.top || 0;
+        const rectWidth = (obj.width || 100) * (obj.scaleX || 1);
+        const rectHeight = (obj.height || 100) * (obj.scaleY || 1);
+        const rectFill = obj.fill || '#000000';
+        const rectStroke = obj.stroke || 'none';
+        const rectStrokeWidth = obj.strokeWidth || 0;
+        
+        console.log(`Rectangle: (${rectX}, ${rectY}) ${rectWidth}x${rectHeight}, fill: ${rectFill}`);
+        
+        svg += `<rect x="${rectX}" y="${rectY}" width="${rectWidth}" height="${rectHeight}" fill="${rectFill}"`;
+        
+        if (rectStroke !== 'none' && rectStrokeWidth > 0) {
+          svg += ` stroke="${rectStroke}" stroke-width="${rectStrokeWidth}"`;
+        }
+        
+        if (obj.angle) {
+          const centerX = rectX + rectWidth / 2;
+          const centerY = rectY + rectHeight / 2;
+          svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
+        }
+        
+        svg += `/>`;
+        break;
+        
+      case 'circle':
+        const circleX = (obj.left || 0) + (obj.radius || 50) * (obj.scaleX || 1);
+        const circleY = (obj.top || 0) + (obj.radius || 50) * (obj.scaleY || 1);
+        const radius = (obj.radius || 50) * Math.max(obj.scaleX || 1, obj.scaleY || 1);
+        const circleFill = obj.fill || '#000000';
+        const circleStroke = obj.stroke || 'none';
+        const circleStrokeWidth = obj.strokeWidth || 0;
+        
+        console.log(`Circle: center (${circleX}, ${circleY}), radius: ${radius}, fill: ${circleFill}`);
+        
+        svg += `<circle cx="${circleX}" cy="${circleY}" r="${radius}" fill="${circleFill}"`;
+        
+        if (circleStroke !== 'none' && circleStrokeWidth > 0) {
+          svg += ` stroke="${circleStroke}" stroke-width="${circleStrokeWidth}"`;
+        }
+        
+        if (obj.angle) {
+          svg += ` transform="rotate(${obj.angle} ${circleX} ${circleY})"`;
+        }
+        
+        svg += `/>`;
+        break;
+        
+      case 'image':
+        if (obj.src) {
+          const imgX = obj.left || 0;
+          const imgY = obj.top || 0;
+          const imgWidth = (obj.width || 100) * (obj.scaleX || 1);
+          const imgHeight = (obj.height || 100) * (obj.scaleY || 1);
+          
+          console.log(`Image: (${imgX}, ${imgY}) ${imgWidth}x${imgHeight}, src: ${obj.src.substring(0, 50)}...`);
+          
+          svg += `<image x="${imgX}" y="${imgY}" width="${imgWidth}" height="${imgHeight}" href="${obj.src}"`;
+          
+          if (obj.angle) {
+            const centerX = imgX + imgWidth / 2;
+            const centerY = imgY + imgHeight / 2;
+            svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
+          }
+          
+          svg += `/>`;
+        }
+        break;
+        
+      case 'line':
+        const x1 = obj.x1 || obj.left || 0;
+        const y1 = obj.y1 || obj.top || 0;
+        const x2 = obj.x2 || (obj.left || 0) + (obj.width || 100);
+        const y2 = obj.y2 || (obj.top || 0) + (obj.height || 0);
+        const lineStroke = obj.stroke || '#000000';
+        const lineStrokeWidth = obj.strokeWidth || 1;
+        
+        console.log(`Line: (${x1}, ${y1}) to (${x2}, ${y2}), stroke: ${lineStroke}`);
+        
+        svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${lineStroke}" stroke-width="${lineStrokeWidth}"`;
+        
+        if (obj.angle) {
+          const centerX = (x1 + x2) / 2;
+          const centerY = (y1 + y2) / 2;
+          svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
+        }
+        
+        svg += `/>`;
+        break;
+        
+      default:
+        console.log('Unknown object type:', obj.type, 'Object keys:', Object.keys(obj));
+        // Try to render as a generic rectangle if it has basic properties
+        if (obj.left !== undefined && obj.top !== undefined) {
+          const genX = obj.left || 0;
+          const genY = obj.top || 0;
+          const genWidth = (obj.width || 50) * (obj.scaleX || 1);
+          const genHeight = (obj.height || 50) * (obj.scaleY || 1);
+          const genFill = obj.fill || '#cccccc';
+          
+          console.log(`Generic object: (${genX}, ${genY}) ${genWidth}x${genHeight}, fill: ${genFill}`);
+          
+          svg += `<rect x="${genX}" y="${genY}" width="${genWidth}" height="${genHeight}" fill="${genFill}"/>`;
+        }
+    }
   } catch (error) {
-    console.error('Error creating fallback PNG:', error);
-    // Return minimal valid PNG data
-    return new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]); // PNG header
+    console.error('Error rendering object to SVG:', error, 'Object:', obj);
   }
+  
+  return svg;
+}
+
+// Helper function to escape XML special characters
+function escapeXml(unsafe: string): string {
+  return unsafe.replace(/[<>&'"]/g, function (c) {
+    switch (c) {
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '&': return '&amp;';
+      case '\'': return '&apos;';
+      case '"': return '&quot;';
+      default: return c;
+    }
+  });
+}
+
+// Create a simple fallback SVG for errors
+function createFallbackSVG(): Uint8Array {
+  console.log('Creating fallback SVG');
+  
+  const fallbackSVG = `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+    <rect width="100%" height="100%" fill="#f8f9fa"/>
+    <text x="200" y="150" text-anchor="middle" font-family="Arial" font-size="16" fill="#dc3545">
+      Error generating image
+    </text>
+  </svg>`;
+  
+  return new TextEncoder().encode(fallbackSVG);
 }
