@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.2';
+import { PNG } from 'https://esm.sh/pngjs@7.0.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -33,18 +34,18 @@ serve(async (req) => {
 
     console.log('Generating image...');
     
-    // Generate JPEG from template scene data
+    // Generate PNG from template scene data
     const timestamp = Date.now();
-    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.jpeg`;
+    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.png`;
     
-    // Create JPEG from scene data
+    // Create PNG from scene data (convert SVG to PNG)
     const imageBuffer = await generateImageFromSceneData(scene_data);
     
-    // Upload to storage as JPEG
+    // Upload to storage as PNG
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('api-renders')
       .upload(imagePath, imageBuffer, {
-        contentType: 'image/jpeg',
+        contentType: 'image/png',
         upsert: true
       });
     
@@ -81,7 +82,7 @@ serve(async (req) => {
   }
 });
 
-// Generate JPEG from scene data by first creating SVG then converting to JPEG
+// Generate PNG from scene data by converting SVG to PNG
 async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
   try {
     console.log('Scene data received for rendering');
@@ -114,17 +115,47 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     svg += '</svg>';
     
     console.log('Generated SVG length:', svg.length);
-    console.log('Creating JPEG from SVG data...');
+    console.log('SVG preview:', svg.substring(0, 500) + '...');
     
-    // Create a simple JPEG representation
-    const jpegBytes = await createJpegFromSvg(svg, width, height);
+    // Create a simple PNG using pure JavaScript
+    console.log('Creating PNG from canvas data...');
+    const png = new PNG({ width, height });
     
-    console.log('Generated JPEG size:', jpegBytes.length, 'bytes');
-    return jpegBytes;
+    // Parse background color
+    const bgColor = parseColor(backgroundColor);
+    
+    // Fill background
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = (width * y + x) << 2;
+        png.data[idx] = bgColor.r;
+        png.data[idx + 1] = bgColor.g;
+        png.data[idx + 2] = bgColor.b;
+        png.data[idx + 3] = 255; // alpha
+      }
+    }
+    
+    // Render objects onto the PNG
+    if (sceneData.objects && Array.isArray(sceneData.objects)) {
+      console.log('Rendering objects onto PNG...');
+      for (let i = 0; i < sceneData.objects.length; i++) {
+        const obj = sceneData.objects[i];
+        renderObjectToPNG(png, obj, width, height);
+      }
+    }
+    
+    console.log('PNG rendering complete');
+    
+    // Convert PNG to buffer
+    const pngBuffer = PNG.sync.write(png);
+    
+    console.log('PNG buffer created, size:', pngBuffer.length);
+    
+    return new Uint8Array(pngBuffer);
     
   } catch (error) {
     console.error('Error generating image from scene data:', error);
-    return createFallbackJPEG();
+    return createFallbackPNG();
   }
 }
 
@@ -290,103 +321,181 @@ function renderObjectToSVG(obj: any): string {
   return svg;
 }
 
-// Helper function to escape XML special characters
-function escapeXml(unsafe: string): string {
-  return unsafe.replace(/[<>&'"]/g, function (c) {
-    switch (c) {
-      case '<': return '&lt;';
-      case '>': return '&gt;';
-      case '&': return '&amp;';
-      case '\'': return '&apos;';
-      case '"': return '&quot;';
-      default: return c;
-    }
-  });
+// Helper function to parse color strings
+function parseColor(colorStr: string): { r: number, g: number, b: number } {
+  if (colorStr.startsWith('#')) {
+    const hex = colorStr.slice(1);
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    return { r, g, b };
+  }
+  // Default to white if unable to parse
+  return { r: 255, g: 255, b: 255 };
 }
 
-// Create JPEG from SVG using pure JS approach
-async function createJpegFromSvg(svgString: string, width: number, height: number): Promise<Uint8Array> {
+// Render a single object onto the PNG
+function renderObjectToPNG(png: any, obj: any, canvasWidth: number, canvasHeight: number) {
   try {
-    console.log('Creating JPEG from SVG using pure JS approach...');
+    const objectType = obj.type?.toLowerCase();
+    console.log(`Rendering object type: ${objectType} to PNG`);
     
-    // Create a data URL from the SVG
-    const svgDataUrl = `data:image/svg+xml;base64,${btoa(svgString)}`;
-    
-    // For now, create a simple JPEG header with basic structure
-    // This creates a minimal valid JPEG file
-    const jpegData = createBasicJpeg(width, height, svgDataUrl);
-    
-    return jpegData;
-    
+    switch (objectType) {
+      case 'rect':
+      case 'rectangle':
+        renderRectangleToPNG(png, obj, canvasWidth, canvasHeight);
+        break;
+      case 'circle':
+        renderCircleToPNG(png, obj, canvasWidth, canvasHeight);
+        break;
+      case 'text':
+      case 'textbox':
+        renderTextToPNG(png, obj, canvasWidth, canvasHeight);
+        break;
+      default:
+        console.log('Unknown object type for PNG rendering:', obj.type);
+    }
   } catch (error) {
-    console.error('Error creating JPEG from SVG:', error);
-    return createFallbackJPEG();
+    console.error('Error rendering object to PNG:', error);
   }
 }
 
-// Create a basic JPEG with embedded SVG data as base64
-function createBasicJpeg(width: number, height: number, svgDataUrl: string): Uint8Array {
-  // Create a minimal JPEG structure
-  const header = new Uint8Array([
-    0xFF, 0xD8, // SOI (Start of Image)
-    0xFF, 0xE0, // APP0
-    0x00, 0x10, // Length
-    0x4A, 0x46, 0x49, 0x46, 0x00, // "JFIF\0"
-    0x01, 0x01, // Version 1.1
-    0x01, // Units (no units)
-    0x00, 0x48, // X density (72 DPI)
-    0x00, 0x48, // Y density (72 DPI)
-    0x00, 0x00, // Thumbnail width/height
-  ]);
-
-  // Create comment segment with SVG data
-  const comment = `SVG_DATA:${svgDataUrl}`;
-  const commentBytes = new TextEncoder().encode(comment);
-  const commentSegment = new Uint8Array([
-    0xFF, 0xFE, // COM marker
-    ...numberToBytes(commentBytes.length + 2, 2), // Length
-    ...commentBytes
-  ]);
-
-  // Create basic frame data
-  const frameData = new Uint8Array([
-    0xFF, 0xC0, // SOF0 (Start of Frame)
-    0x00, 0x11, // Length
-    0x08, // Precision
-    ...numberToBytes(height, 2), // Height
-    ...numberToBytes(width, 2), // Width
-    0x03, // Number of components
-    0x01, 0x11, 0x00, // Y component
-    0x02, 0x11, 0x01, // Cb component
-    0x03, 0x11, 0x01, // Cr component
-    0xFF, 0xD9 // EOI (End of Image)
-  ]);
-
-  // Combine all segments
-  const result = new Uint8Array(header.length + commentSegment.length + frameData.length);
-  let offset = 0;
-  result.set(header, offset);
-  offset += header.length;
-  result.set(commentSegment, offset);
-  offset += commentSegment.length;
-  result.set(frameData, offset);
-
-  return result;
-}
-
-// Helper function to convert number to bytes
-function numberToBytes(num: number, bytes: number): number[] {
-  const result = [];
-  for (let i = bytes - 1; i >= 0; i--) {
-    result.push((num >> (i * 8)) & 0xFF);
-  }
-  return result;
-}
-
-// Create a simple fallback JPEG for errors
-function createFallbackJPEG(): Uint8Array {
-  console.log('Creating fallback JPEG');
+// Render rectangle to PNG
+function renderRectangleToPNG(png: any, obj: any, canvasWidth: number, canvasHeight: number) {
+  const x = Math.floor(obj.left || 0);
+  const y = Math.floor(obj.top || 0);
+  const width = Math.floor((obj.width || 100) * (obj.scaleX || 1));
+  const height = Math.floor((obj.height || 100) * (obj.scaleY || 1));
+  const color = parseColor(obj.fill || '#000000');
   
-  // Create a minimal valid JPEG file (1x1 white pixel)
-  return createBasicJpeg(1, 1, 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMSIgaGVpZ2h0PSIxIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiNmZmZmZmYiLz48L3N2Zz4=');
+  console.log(`Rectangle: (${x}, ${y}) ${width}x${height}`);
+  
+  for (let dy = 0; dy < height; dy++) {
+    for (let dx = 0; dx < width; dx++) {
+      const px = x + dx;
+      const py = y + dy;
+      
+      if (px >= 0 && px < canvasWidth && py >= 0 && py < canvasHeight) {
+        const idx = (canvasWidth * py + px) << 2;
+        png.data[idx] = color.r;
+        png.data[idx + 1] = color.g;
+        png.data[idx + 2] = color.b;
+        png.data[idx + 3] = 255;
+      }
+    }
+  }
+}
+
+// Render circle to PNG
+function renderCircleToPNG(png: any, obj: any, canvasWidth: number, canvasHeight: number) {
+  const centerX = Math.floor((obj.left || 0) + (obj.radius || 50) * (obj.scaleX || 1));
+  const centerY = Math.floor((obj.top || 0) + (obj.radius || 50) * (obj.scaleY || 1));
+  const radius = Math.floor((obj.radius || 50) * Math.max(obj.scaleX || 1, obj.scaleY || 1));
+  const color = parseColor(obj.fill || '#000000');
+  
+  console.log(`Circle: center (${centerX}, ${centerY}), radius: ${radius}`);
+  
+  const radiusSquared = radius * radius;
+  
+  for (let y = centerY - radius; y <= centerY + radius; y++) {
+    for (let x = centerX - radius; x <= centerX + radius; x++) {
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const distanceSquared = dx * dx + dy * dy;
+      
+      if (distanceSquared <= radiusSquared && x >= 0 && x < canvasWidth && y >= 0 && y < canvasHeight) {
+        const idx = (canvasWidth * y + x) << 2;
+        png.data[idx] = color.r;
+        png.data[idx + 1] = color.g;
+        png.data[idx + 2] = color.b;
+        png.data[idx + 3] = 255;
+      }
+    }
+  }
+}
+
+// Render text to PNG (simplified - just a colored rectangle placeholder)
+function renderTextToPNG(png: any, obj: any, canvasWidth: number, canvasHeight: number) {
+  const x = Math.floor(obj.left || 0);
+  const y = Math.floor(obj.top || 0);
+  const fontSize = obj.fontSize || 16;
+  const textLength = (obj.text || '').length;
+  
+  // Approximate text dimensions
+  const textWidth = Math.floor(textLength * fontSize * 0.6);
+  const textHeight = Math.floor(fontSize);
+  const color = parseColor(obj.fill || '#000000');
+  
+  console.log(`Text placeholder: "${obj.text}" at (${x}, ${y}), size: ${textWidth}x${textHeight}`);
+  
+  // Render as a simple rectangle placeholder for text
+  for (let dy = 0; dy < textHeight; dy++) {
+    for (let dx = 0; dx < textWidth; dx++) {
+      const px = x + dx;
+      const py = y + dy;
+      
+      if (px >= 0 && px < canvasWidth && py >= 0 && py < canvasHeight) {
+        const idx = (canvasWidth * py + px) << 2;
+        png.data[idx] = color.r;
+        png.data[idx + 1] = color.g;
+        png.data[idx + 2] = color.b;
+        png.data[idx + 3] = 255;
+      }
+    }
+  }
+}
+
+// Create a simple fallback PNG for errors
+function createFallbackPNG(): Uint8Array {
+  console.log('Creating fallback PNG');
+  
+  try {
+    const width = 400;
+    const height = 300;
+    const png = new PNG({ width, height });
+    
+    // Fill with light gray background
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = (width * y + x) << 2;
+        png.data[idx] = 248;     // R
+        png.data[idx + 1] = 249; // G
+        png.data[idx + 2] = 250; // B
+        png.data[idx + 3] = 255; // A
+      }
+    }
+    
+    // Add a red error rectangle in the center
+    const rectX = 150;
+    const rectY = 125;
+    const rectWidth = 100;
+    const rectHeight = 50;
+    
+    for (let y = rectY; y < rectY + rectHeight; y++) {
+      for (let x = rectX; x < rectX + rectWidth; x++) {
+        if (x < width && y < height) {
+          const idx = (width * y + x) << 2;
+          png.data[idx] = 220;     // R (red)
+          png.data[idx + 1] = 53;  // G
+          png.data[idx + 2] = 69;  // B
+          png.data[idx + 3] = 255; // A
+        }
+      }
+    }
+    
+    const pngBuffer = PNG.sync.write(png);
+    return new Uint8Array(pngBuffer);
+  } catch (error) {
+    console.error('Error creating fallback PNG:', error);
+    // Return a minimal valid PNG if PNG.js fails
+    const redPixelPNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
+    const binaryString = atob(redPixelPNG);
+    const bytes = new Uint8Array(binaryString.length);
+    
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    
+    return bytes;
+  }
 }
