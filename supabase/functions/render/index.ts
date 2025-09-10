@@ -14,7 +14,7 @@ serve(async (req) => {
   try {
     console.log('Render function - Request received');
     
-    const { template_id, scene_data, user_id, format = 'png', quality = 80 } = await req.json();
+    const { template_id, scene_data, user_id } = await req.json();
     
     if (!template_id || !scene_data || !user_id) {
       return new Response(JSON.stringify({ error: 'Missing required fields' }), {
@@ -23,7 +23,7 @@ serve(async (req) => {
       });
     }
 
-    console.log('Rendering template:', template_id, 'Format:', format);
+    console.log('Rendering template:', template_id);
 
     // Initialize Supabase client
     const supabase = createClient(
@@ -33,20 +33,18 @@ serve(async (req) => {
 
     console.log('Generating image...');
     
-    // Generate image from template scene data
+    // Generate SVG from template scene data
     const timestamp = Date.now();
-    const fileExtension = format === 'jpg' || format === 'jpeg' ? 'jpg' : 'png';
-    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.${fileExtension}`;
-    const contentType = format === 'jpg' || format === 'jpeg' ? 'image/jpeg' : 'image/png';
+    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.svg`;
     
-    // Create image from scene data using Resvg
-    const imageBuffer = await generateImageFromSceneData(scene_data, format, quality);
+    // Create SVG from scene data
+    const imageBuffer = await generateImageFromSceneData(scene_data);
     
-    // Upload to storage
+    // Upload to storage as SVG (browsers can display SVG directly)
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('api-renders')
       .upload(imagePath, imageBuffer, {
-        contentType,
+        contentType: 'image/svg+xml',
         upsert: true
       });
     
@@ -55,21 +53,34 @@ serve(async (req) => {
       throw new Error(`Failed to upload image: ${uploadError.message}`);
     }
     
-    // Get public URL
-    const { data: urlData } = supabase.storage
-      .from('api-renders')
-      .getPublicUrl(imagePath);
+    // Convert SVG to PNG using the svg-to-png-renderer function
+    console.log('Calling svg-to-png-renderer...');
     
-    const mockImageUrl = urlData.publicUrl;
-
-    console.log('Generated image URL:', mockImageUrl);
+    const { data: pngResponse, error: pngError } = await supabase.functions.invoke('svg-to-png-renderer', {
+      body: {
+        bucket: 'api-renders',
+        key: imagePath
+      }
+    });
+    
+    if (pngError) {
+      console.error('PNG conversion error:', pngError);
+      throw new Error(`Failed to convert to PNG: ${pngError.message}`);
+    }
+    
+    if (pngResponse.error) {
+      console.error('PNG conversion failed:', pngResponse.error);
+      throw new Error(`PNG conversion failed: ${pngResponse.error}`);
+    }
+    
+    console.log('PNG generated successfully:', pngResponse.png_url);
 
     return new Response(JSON.stringify({
       success: true,
-      image_url: mockImageUrl,
+      image_url: pngResponse.png_url,
       template_id,
       generation_time: '1.2s',
-      message: 'Image rendered successfully'
+      message: 'Image rendered and converted to PNG successfully'
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -83,8 +94,8 @@ serve(async (req) => {
   }
 });
 
-// Generate image from scene data using simple bitmap approach
-async function generateImageFromSceneData(sceneData: any, format = 'png', quality = 80): Promise<Uint8Array> {
+// Generate SVG from scene data and return it as bytes for upload
+async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
   try {
     console.log('Scene data received for rendering');
     console.log('Scene data objects count:', sceneData.objects?.length || 0);
@@ -94,243 +105,38 @@ async function generateImageFromSceneData(sceneData: any, format = 'png', qualit
     const height = sceneData.height || 600;
     const backgroundColor = sceneData.backgroundColor || '#ffffff';
     
-    console.log(`Canvas dimensions: ${width}x${height}, background: ${backgroundColor}, format: ${format}`);
+    console.log(`Canvas dimensions: ${width}x${height}, background: ${backgroundColor}`);
     
-    // Create a simple bitmap image
-    return createSimpleBitmap(width, height, backgroundColor, sceneData.objects || []);
+    // Create SVG from scene data
+    let svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">`;
+    svg += `<rect width="100%" height="100%" fill="${backgroundColor}"/>`;
     
-  } catch (error) {
-    console.error('Error generating image from scene data:', error);
-    return createFallbackPNG();
-  }
-}
-
-// Create a simple bitmap image (PNG format)
-function createSimpleBitmap(width: number, height: number, backgroundColor: string, objects: any[]): Uint8Array {
-  console.log('Creating simple bitmap image...');
-  
-  // Create RGBA pixel data
-  const pixels = new Uint8Array(width * height * 4);
-  
-  // Parse background color
-  const bgColor = parseColor(backgroundColor);
-  
-  // Fill background
-  for (let i = 0; i < pixels.length; i += 4) {
-    pixels[i] = bgColor.r;     // Red
-    pixels[i + 1] = bgColor.g; // Green
-    pixels[i + 2] = bgColor.b; // Blue
-    pixels[i + 3] = 255;       // Alpha
-  }
-  
-  // Render objects
-  for (const obj of objects) {
-    renderObjectToBitmap(pixels, width, height, obj);
-  }
-  
-  // Convert to PNG format
-  return createPNGFromRGBA(pixels, width, height);
-}
-
-// Parse color string to RGB
-function parseColor(color: string): { r: number, g: number, b: number } {
-  // Handle hex colors
-  if (color.startsWith('#')) {
-    const hex = color.slice(1);
-    if (hex.length === 3) {
-      return {
-        r: parseInt(hex[0] + hex[0], 16),
-        g: parseInt(hex[1] + hex[1], 16),
-        b: parseInt(hex[2] + hex[2], 16)
-      };
-    } else if (hex.length === 6) {
-      return {
-        r: parseInt(hex.slice(0, 2), 16),
-        g: parseInt(hex.slice(2, 4), 16),
-        b: parseInt(hex.slice(4, 6), 16)
-      };
-    }
-  }
-  
-  // Default to black
-  return { r: 0, g: 0, b: 0 };
-}
-
-// Render a single object to the bitmap
-function renderObjectToBitmap(pixels: Uint8Array, width: number, height: number, obj: any) {
-  try {
-    const objectType = obj.type?.toLowerCase();
-    console.log(`Rendering object type: ${objectType} to bitmap`);
-    
-    switch (objectType) {
-      case 'rect':
-      case 'rectangle':
-        renderRectangle(pixels, width, height, obj);
-        break;
-      case 'circle':
-        renderCircle(pixels, width, height, obj);
-        break;
-      case 'textbox':
-      case 'text':
-        // For now, render text as a small rectangle placeholder
-        renderTextPlaceholder(pixels, width, height, obj);
-        break;
-      default:
-        console.log('Unknown object type for bitmap rendering:', obj.type);
-    }
-  } catch (error) {
-    console.error('Error rendering object to bitmap:', error);
-  }
-}
-
-// Render rectangle to bitmap
-function renderRectangle(pixels: Uint8Array, width: number, height: number, obj: any) {
-  const x = Math.floor(obj.left || 0);
-  const y = Math.floor(obj.top || 0);
-  const rectWidth = Math.floor((obj.width || 100) * (obj.scaleX || 1));
-  const rectHeight = Math.floor((obj.height || 100) * (obj.scaleY || 1));
-  const color = parseColor(obj.fill || '#000000');
-  
-  for (let py = y; py < y + rectHeight && py < height; py++) {
-    for (let px = x; px < x + rectWidth && px < width; px++) {
-      if (px >= 0 && py >= 0) {
-        const index = (py * width + px) * 4;
-        pixels[index] = color.r;
-        pixels[index + 1] = color.g;
-        pixels[index + 2] = color.b;
-        pixels[index + 3] = 255;
-      }
-    }
-  }
-}
-
-// Render circle to bitmap
-function renderCircle(pixels: Uint8Array, width: number, height: number, obj: any) {
-  const centerX = Math.floor((obj.left || 0) + (obj.radius || 50) * (obj.scaleX || 1));
-  const centerY = Math.floor((obj.top || 0) + (obj.radius || 50) * (obj.scaleY || 1));
-  const radius = Math.floor((obj.radius || 50) * Math.max(obj.scaleX || 1, obj.scaleY || 1));
-  const color = parseColor(obj.fill || '#000000');
-  
-  for (let py = centerY - radius; py <= centerY + radius; py++) {
-    for (let px = centerX - radius; px <= centerX + radius; px++) {
-      if (px >= 0 && py >= 0 && px < width && py < height) {
-        const distance = Math.sqrt((px - centerX) ** 2 + (py - centerY) ** 2);
-        if (distance <= radius) {
-          const index = (py * width + px) * 4;
-          pixels[index] = color.r;
-          pixels[index + 1] = color.g;
-          pixels[index + 2] = color.b;
-          pixels[index + 3] = 255;
+    // Process each object in the scene
+    if (sceneData.objects && Array.isArray(sceneData.objects)) {
+      console.log('Processing objects...');
+      for (let i = 0; i < sceneData.objects.length; i++) {
+        const obj = sceneData.objects[i];
+        console.log(`Processing object ${i}: type=${obj.type}, left=${obj.left}, top=${obj.top}`);
+        const objectSVG = renderObjectToSVG(obj);
+        if (objectSVG) {
+          svg += objectSVG;
         }
       }
     }
+    
+    svg += '</svg>';
+    
+    console.log('Generated SVG length:', svg.length);
+    console.log('SVG preview:', svg.substring(0, 500) + '...');
+    
+    // Instead of converting to PNG (which is complex in Deno), 
+    // return the SVG as bytes - browsers can display SVG files directly
+    return new TextEncoder().encode(svg);
+    
+  } catch (error) {
+    console.error('Error generating image from scene data:', error);
+    return createFallbackSVG();
   }
-}
-
-// Render text as a placeholder rectangle
-function renderTextPlaceholder(pixels: Uint8Array, width: number, height: number, obj: any) {
-  const x = Math.floor(obj.left || 0);
-  const y = Math.floor(obj.top || 0);
-  const textWidth = Math.floor((obj.text?.length || 5) * (obj.fontSize || 16) * 0.6);
-  const textHeight = Math.floor((obj.fontSize || 16) * 1.2);
-  const color = parseColor(obj.fill || '#000000');
-  
-  // Render as a simple rectangle for now
-  for (let py = y; py < y + textHeight && py < height; py++) {
-    for (let px = x; px < x + textWidth && px < width; px++) {
-      if (px >= 0 && py >= 0) {
-        const index = (py * width + px) * 4;
-        pixels[index] = color.r;
-        pixels[index + 1] = color.g;
-        pixels[index + 2] = color.b;
-        pixels[index + 3] = 255;
-      }
-    }
-  }
-}
-
-// Create PNG from RGBA data (minimal PNG implementation)
-function createPNGFromRGBA(pixels: Uint8Array, width: number, height: number): Uint8Array {
-  console.log('Converting RGBA to PNG format...');
-  
-  // This is a very basic PNG implementation
-  // For production, you'd want a proper PNG encoder
-  
-  // PNG signature
-  const signature = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
-  
-  // IHDR chunk
-  const ihdr = createPNGChunk('IHDR', new Uint8Array([
-    ...intToBytes(width, 4),
-    ...intToBytes(height, 4),
-    8, // bit depth
-    6, // color type (RGBA)
-    0, // compression
-    0, // filter
-    0  // interlace
-  ]));
-  
-  // For simplicity, create a very basic bitmap format instead of proper PNG
-  // This will create a simple uncompressed format that can be read as an image
-  
-  const headerSize = 54;
-  const imageSize = width * height * 4;
-  const fileSize = headerSize + imageSize;
-  
-  const bitmap = new Uint8Array(fileSize);
-  
-  // BMP header (simplified)
-  bitmap[0] = 0x42; // 'B'
-  bitmap[1] = 0x4D; // 'M'
-  
-  // File size
-  bitmap[2] = fileSize & 0xFF;
-  bitmap[3] = (fileSize >> 8) & 0xFF;
-  bitmap[4] = (fileSize >> 16) & 0xFF;
-  bitmap[5] = (fileSize >> 24) & 0xFF;
-  
-  // Copy pixel data
-  bitmap.set(pixels, headerSize);
-  
-  console.log('Created bitmap image, size:', bitmap.length, 'bytes');
-  return bitmap;
-}
-
-// Helper function to convert integer to bytes
-function intToBytes(value: number, bytes: number): number[] {
-  const result = [];
-  for (let i = bytes - 1; i >= 0; i--) {
-    result.push((value >> (i * 8)) & 0xFF);
-  }
-  return result;
-}
-
-// Create PNG chunk
-function createPNGChunk(type: string, data: Uint8Array): Uint8Array {
-  const length = data.length;
-  const chunk = new Uint8Array(4 + 4 + length + 4);
-  
-  // Length
-  chunk[0] = (length >> 24) & 0xFF;
-  chunk[1] = (length >> 16) & 0xFF;
-  chunk[2] = (length >> 8) & 0xFF;
-  chunk[3] = length & 0xFF;
-  
-  // Type
-  for (let i = 0; i < 4; i++) {
-    chunk[4 + i] = type.charCodeAt(i);
-  }
-  
-  // Data
-  chunk.set(data, 8);
-  
-  // CRC (simplified - just use 0 for now)
-  chunk[8 + length] = 0;
-  chunk[9 + length] = 0;
-  chunk[10 + length] = 0;
-  chunk[11 + length] = 0;
-  
-  return chunk;
 }
 
 // Render a Fabric.js object to SVG
@@ -509,9 +315,9 @@ function escapeXml(unsafe: string): string {
   });
 }
 
-// Create a simple fallback PNG for errors
-function createFallbackPNG(): Uint8Array {
-  console.log('Creating fallback PNG');
+// Create a simple fallback SVG for errors
+function createFallbackSVG(): Uint8Array {
+  console.log('Creating fallback SVG');
   
   const fallbackSVG = `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
     <rect width="100%" height="100%" fill="#f8f9fa"/>
@@ -520,20 +326,5 @@ function createFallbackPNG(): Uint8Array {
     </text>
   </svg>`;
   
-  try {
-    const resvg = new Resvg(fallbackSVG, {
-      background: '#f8f9fa',
-      fitTo: {
-        mode: 'width',
-        value: 400,
-      },
-    });
-    
-    const pngData = resvg.render();
-    return pngData.asPng();
-  } catch (error) {
-    console.error('Error creating fallback PNG:', error);
-    // Return a minimal PNG header if even fallback fails
-    return new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
-  }
+  return new TextEncoder().encode(fallbackSVG);
 }
