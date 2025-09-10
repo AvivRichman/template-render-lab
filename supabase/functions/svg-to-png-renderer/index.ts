@@ -10,27 +10,65 @@ let wasmInitialized = false;
 async function ensureWasmInit() {
   if (wasmInitialized) return;
   
-  // Fetch the WASM binary
-  const wasmUrl = "https://cdn.jsdelivr.net/npm/@resvg/resvg-wasm@2.3.0/index_bg.wasm";
-  const resp = await fetch(wasmUrl);
-  if (!resp.ok) throw new Error(`Failed to fetch WASM binary: ${resp.status}`);
-  
-  const wasmArrayBuffer = await resp.arrayBuffer();
-  
-  // Dynamically import the module AFTER fetching the wasm binary so we control initialization
-  // This avoids the module trying to resolve a relative 'index_bg.wasm' URL at import time
-  resvgModule = await import("npm:@resvg/resvg-wasm@2.3.0");
-  
-  // Some versions export an `init` named export, some default-export a function — handle both
-  if (typeof resvgModule.init === "function") {
-    await resvgModule.init(wasmArrayBuffer);
-  } else if (typeof resvgModule.default === "function") {
-    await resvgModule.default(wasmArrayBuffer);
-  } else {
-    throw new Error("resvg-wasm module does not expose an init function");
+  try {
+    // Try different initialization approaches for resvg-wasm
+    resvgModule = await import("npm:@resvg/resvg-wasm@2.3.0");
+    
+    console.log("Module keys:", Object.keys(resvgModule));
+    console.log("Module default type:", typeof resvgModule.default);
+    console.log("Module init type:", typeof resvgModule.init);
+    console.log("Module initWasm type:", typeof resvgModule.initWasm);
+    
+    // Method 1: Check if module has initWasm function
+    if (typeof resvgModule.initWasm === "function") {
+      console.log("Using initWasm method");
+      await resvgModule.initWasm();
+    }
+    // Method 2: Check if module has init function
+    else if (typeof resvgModule.init === "function") {
+      console.log("Using init method");
+      await resvgModule.init();
+    }
+    // Method 3: Check if the default export is an init function
+    else if (typeof resvgModule.default === "function") {
+      console.log("Using default method");
+      await resvgModule.default();
+    }
+    // Method 4: Try with manual WASM fetch
+    else {
+      console.log("Trying manual WASM fetch");
+      const wasmUrl = "https://cdn.jsdelivr.net/npm/@resvg/resvg-wasm@2.3.0/index_bg.wasm";
+      const resp = await fetch(wasmUrl);
+      if (!resp.ok) throw new Error(`Failed to fetch WASM binary: ${resp.status}`);
+      
+      const wasmArrayBuffer = await resp.arrayBuffer();
+      
+      if (typeof resvgModule.init === "function") {
+        await resvgModule.init(wasmArrayBuffer);
+      } else if (typeof resvgModule.default === "function") {
+        await resvgModule.default(wasmArrayBuffer);
+      } else {
+        // Try to find any init-like function in the module
+        const initFunctions = Object.keys(resvgModule).filter(key => 
+          key.toLowerCase().includes('init') && typeof resvgModule[key] === 'function'
+        );
+        
+        console.log("Found init functions:", initFunctions);
+        
+        if (initFunctions.length > 0) {
+          await resvgModule[initFunctions[0]](wasmArrayBuffer);
+        } else {
+          // Last resort: the module might auto-initialize
+          console.warn("No init function found, hoping module auto-initializes");
+        }
+      }
+    }
+    
+    wasmInitialized = true;
+  } catch (error) {
+    console.error("WASM initialization failed:", error);
+    throw new Error(`Failed to initialize resvg-wasm: ${error.message}`);
   }
-  
-  wasmInitialized = true;
 }
 
 async function fetchSvg(bucket, path) {
@@ -70,6 +108,16 @@ async function svgToPng(svg, width, height) {
 }
 
 Deno.serve(async (req) => {
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  };
+
+  // Handle CORS preflight requests
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
   try {
     const url = new URL(req.url);
     const params = url.searchParams;
@@ -93,7 +141,8 @@ Deno.serve(async (req) => {
       }), {
         status: 400,
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          ...corsHeaders
         }
       });
     }
@@ -120,7 +169,8 @@ Deno.serve(async (req) => {
     
     return new Response(JSON.stringify(resBody), {
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        ...corsHeaders
       }
     });
     
@@ -131,7 +181,8 @@ Deno.serve(async (req) => {
     }), {
       status: 500,
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        ...corsHeaders
       }
     });
   }
