@@ -53,21 +53,38 @@ serve(async (req) => {
       throw new Error(`Failed to upload image: ${uploadError.message}`);
     }
     
-    // Get public URL
-    const { data: urlData } = supabase.storage
-      .from('api-renders')
-      .getPublicUrl(imagePath);
+    // Convert SVG to PNG using the svg-to-png-renderer function
+    const svgString = new TextDecoder().decode(imageBuffer);
+    const filename = imagePath.split('/').pop() || `generated-${template_id}-${timestamp}.svg`;
     
-    const mockImageUrl = urlData.publicUrl;
-
-    console.log('Generated image URL:', mockImageUrl);
+    console.log('Calling svg-to-png-renderer...');
+    
+    const { data: pngResponse, error: pngError } = await supabase.functions.invoke('svg-to-png-renderer', {
+      body: {
+        svg_content: svgString,
+        user_id: user_id,
+        filename: filename
+      }
+    });
+    
+    if (pngError) {
+      console.error('PNG conversion error:', pngError);
+      throw new Error(`Failed to convert to PNG: ${pngError.message}`);
+    }
+    
+    if (!pngResponse.success) {
+      console.error('PNG conversion failed:', pngResponse.error);
+      throw new Error(`PNG conversion failed: ${pngResponse.error}`);
+    }
+    
+    console.log('PNG generated successfully:', pngResponse.png_url);
 
     return new Response(JSON.stringify({
       success: true,
-      image_url: mockImageUrl,
+      image_url: pngResponse.png_url,
       template_id,
       generation_time: '1.2s',
-      message: 'Image rendered successfully'
+      message: 'Image rendered and converted to PNG successfully'
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
