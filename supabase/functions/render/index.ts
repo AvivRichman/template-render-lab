@@ -54,16 +54,12 @@ serve(async (req) => {
     }
     
     // Convert SVG to PNG using the svg-to-png-renderer function
-    const svgString = new TextDecoder().decode(imageBuffer);
-    const filename = imagePath.split('/').pop() || `generated-${template_id}-${timestamp}.svg`;
-    
     console.log('Calling svg-to-png-renderer...');
     
     const { data: pngResponse, error: pngError } = await supabase.functions.invoke('svg-to-png-renderer', {
       body: {
-        svg_content: svgString,
-        user_id: user_id,
-        filename: filename
+        bucket: 'api-renders',
+        key: imagePath
       }
     });
     
@@ -72,7 +68,7 @@ serve(async (req) => {
       throw new Error(`Failed to convert to PNG: ${pngError.message}`);
     }
     
-    if (!pngResponse.success) {
+    if (pngResponse.error) {
       console.error('PNG conversion failed:', pngResponse.error);
       throw new Error(`PNG conversion failed: ${pngResponse.error}`);
     }
