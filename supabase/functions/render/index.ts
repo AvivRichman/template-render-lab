@@ -123,9 +123,16 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     
     console.log(`Canvas dimensions: ${width}x${height}, background: ${backgroundColor}`);
     
-    // Create resvg-wasm compatible SVG with proper XML declaration and namespace
+    // Create resvg-wasm compatible SVG with embedded font definitions
     let svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">`;
+<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<defs>
+  <style type="text/css"><![CDATA[
+    .text-default { font-family: 'DejaVu Sans', 'Liberation Sans', Arial, sans-serif; }
+    .text-serif { font-family: 'DejaVu Serif', 'Liberation Serif', 'Times New Roman', serif; }
+    .text-mono { font-family: 'DejaVu Sans Mono', 'Liberation Mono', 'Courier New', monospace; }
+  ]]></style>
+</defs>`;
     svg += `<rect width="100%" height="100%" fill="${backgroundColor}"/>`;
     
     // Process each object in the scene
@@ -187,26 +194,26 @@ function renderObjectToSVG(obj: any): string {
       const fill = obj.fill || '#000000';
       const text = obj.text || '';
       
-      // Use generic system fonts that resvg-wasm supports
-      let fontFamily = 'sans-serif'; // Default safe fallback
+      // Use DejaVu fonts which are commonly available in server environments
+      let fontFamily = '"DejaVu Sans", "Liberation Sans", Arial, sans-serif'; // Default safe fallback
       if (obj.fontFamily) {
         const lowerFont = obj.fontFamily.toLowerCase();
         if (lowerFont.includes('arial') || lowerFont.includes('helvetica') || lowerFont.includes('sans')) {
-          fontFamily = 'sans-serif';
+          fontFamily = '"DejaVu Sans", "Liberation Sans", Arial, sans-serif';
         } else if (lowerFont.includes('times') || lowerFont.includes('serif')) {
-          fontFamily = 'serif';
+          fontFamily = '"DejaVu Serif", "Liberation Serif", "Times New Roman", serif';
         } else if (lowerFont.includes('courier') || lowerFont.includes('mono')) {
-          fontFamily = 'monospace';
+          fontFamily = '"DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace';
         }
       }
       
       console.log(`Text rendering params: "${text}" at (${x}, ${y}), size: ${fontSize}, fill: ${fill}, font: ${fontFamily}`);
       
-      // Position text properly for resvg-wasm - use dominant-baseline for better compatibility
-      const textY = y + (fontSize * 0.8); // Adjust baseline for resvg-wasm
+      // Position text properly for resvg-wasm - use better baseline calculation
+      const textY = y + (fontSize * 0.85); // Better baseline for resvg-wasm
       
-      // Create resvg-wasm optimized text element with explicit attributes
-      svg += `<text x="${x}" y="${textY}" font-family="${fontFamily}" font-size="${fontSize}px" fill="${fill}" text-anchor="start" dominant-baseline="alphabetic" font-weight="normal" font-style="normal">${escapeXml(text)}</text>`;
+      // Create resvg-wasm optimized text element with explicit font fallbacks
+      svg += `<text x="${x}" y="${textY}" font-family="${fontFamily}" font-size="${fontSize}" fill="${fill}" text-anchor="start" dominant-baseline="auto" font-weight="400" font-style="normal">${escapeXml(text)}</text>`;
       
       console.log(`Generated resvg-compatible text SVG: <text x="${x}" y="${textY}" font-family="${fontFamily}" font-size="${fontSize}px" fill="${fill}">${escapeXml(text)}</text>`);
       console.log('=== TEXT RENDERING END ===');
