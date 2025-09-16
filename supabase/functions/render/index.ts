@@ -111,10 +111,9 @@ serve(async (req) => {
 // Generate SVG from scene data and return it as bytes for upload - resvg-wasm optimized
 async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
   try {
-    console.log('=== SVG GENERATION START (resvg-wasm optimized) ===');
+    console.log('=== SVG GENERATION START (resvg-wasm basic approach) ===');
     console.log('Scene data received for rendering');
     console.log('Scene data objects count:', sceneData.objects?.length || 0);
-    console.log('Full scene data:', JSON.stringify(sceneData, null, 2));
     
     // Extract canvas dimensions from scene data
     const width = sceneData.width || 800;
@@ -123,16 +122,9 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     
     console.log(`Canvas dimensions: ${width}x${height}, background: ${backgroundColor}`);
     
-    // Create resvg-wasm compatible SVG with embedded font definitions
+    // Create minimal SVG without font dependencies for resvg-wasm compatibility
     let svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
-<defs>
-  <style type="text/css"><![CDATA[
-    .text-default { font-family: 'DejaVu Sans', 'Liberation Sans', Arial, sans-serif; }
-    .text-serif { font-family: 'DejaVu Serif', 'Liberation Serif', 'Times New Roman', serif; }
-    .text-mono { font-family: 'DejaVu Sans Mono', 'Liberation Mono', 'Courier New', monospace; }
-  ]]></style>
-</defs>`;
+<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">`;
     svg += `<rect width="100%" height="100%" fill="${backgroundColor}"/>`;
     
     // Process each object in the scene
@@ -146,13 +138,12 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
           top: obj.top,
           text: obj.text || 'N/A',
           fill: obj.fill,
-          fontSize: obj.fontSize,
-          fontFamily: obj.fontFamily
+          fontSize: obj.fontSize
         });
         const objectSVG = renderObjectToSVG(obj);
         if (objectSVG) {
           svg += objectSVG;
-          console.log(`Added resvg-compatible SVG for object ${i}:`, objectSVG.substring(0, 200) + '...');
+          console.log(`Added basic SVG for object ${i}:`, objectSVG.substring(0, 100) + '...');
         } else {
           console.log(`No SVG generated for object ${i}`);
         }
@@ -161,8 +152,8 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     
     svg += '</svg>';
     
-    console.log('Generated resvg-compatible SVG length:', svg.length);
-    console.log('=== COMPLETE RESVG-COMPATIBLE SVG OUTPUT ===');
+    console.log('Generated basic SVG length:', svg.length);
+    console.log('=== COMPLETE BASIC SVG OUTPUT ===');
     console.log(svg);
     console.log('=== SVG GENERATION END ===');
     
@@ -170,7 +161,7 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     return new TextEncoder().encode(svg);
     
   } catch (error) {
-    console.error('Error generating resvg-compatible image from scene data:', error);
+    console.error('Error generating basic image from scene data:', error);
     return createFallbackSVG();
   }
 }
@@ -183,10 +174,10 @@ function renderObjectToSVG(obj: any): string {
     const objectType = obj.type?.toLowerCase();
     console.log(`Rendering object type: ${objectType}, has text: ${!!obj.text}`);
     
-    // Handle any object with text content, regardless of type - resvg-wasm optimized
+    // Handle any object with text content - use minimal approach for resvg-wasm
     if (obj.text && obj.text.trim() !== '') {
-      console.log('=== TEXT RENDERING START (resvg-wasm compatible) ===');
-      console.log('Text object details:', obj);
+      console.log('=== TEXT RENDERING START (basic approach) ===');
+      console.log('Text content:', obj.text);
       
       const x = obj.left || 0;
       const y = obj.top || 0;
@@ -194,28 +185,15 @@ function renderObjectToSVG(obj: any): string {
       const fill = obj.fill || '#000000';
       const text = obj.text || '';
       
-      // Use DejaVu fonts which are commonly available in server environments
-      let fontFamily = '"DejaVu Sans", "Liberation Sans", Arial, sans-serif'; // Default safe fallback
-      if (obj.fontFamily) {
-        const lowerFont = obj.fontFamily.toLowerCase();
-        if (lowerFont.includes('arial') || lowerFont.includes('helvetica') || lowerFont.includes('sans')) {
-          fontFamily = '"DejaVu Sans", "Liberation Sans", Arial, sans-serif';
-        } else if (lowerFont.includes('times') || lowerFont.includes('serif')) {
-          fontFamily = '"DejaVu Serif", "Liberation Serif", "Times New Roman", serif';
-        } else if (lowerFont.includes('courier') || lowerFont.includes('mono')) {
-          fontFamily = '"DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace';
-        }
-      }
+      console.log(`Text rendering params: "${text}" at (${x}, ${y}), size: ${fontSize}, fill: ${fill}`);
       
-      console.log(`Text rendering params: "${text}" at (${x}, ${y}), size: ${fontSize}, fill: ${fill}, font: ${fontFamily}`);
+      // Calculate proper text positioning - use simple approach
+      const textY = y + fontSize; // Simple baseline calculation
       
-      // Position text properly for resvg-wasm - use better baseline calculation
-      const textY = y + (fontSize * 0.85); // Better baseline for resvg-wasm
+      // Create minimal text element without font specifications for resvg-wasm
+      svg += `<text x="${x}" y="${textY}" font-size="${fontSize}" fill="${fill}">${escapeXml(text)}</text>`;
       
-      // Create resvg-wasm optimized text element with explicit font fallbacks
-      svg += `<text x="${x}" y="${textY}" font-family="${fontFamily}" font-size="${fontSize}" fill="${fill}" text-anchor="start" dominant-baseline="auto" font-weight="400" font-style="normal">${escapeXml(text)}</text>`;
-      
-      console.log(`Generated resvg-compatible text SVG: <text x="${x}" y="${textY}" font-family="${fontFamily}" font-size="${fontSize}px" fill="${fill}">${escapeXml(text)}</text>`);
+      console.log(`Generated basic text SVG: <text x="${x}" y="${textY}" font-size="${fontSize}" fill="${fill}">${escapeXml(text)}</text>`);
       console.log('=== TEXT RENDERING END ===');
       
       return svg;
