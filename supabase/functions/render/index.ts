@@ -93,8 +93,10 @@ serve(async (req) => {
 // Generate SVG from scene data and return it as bytes for upload
 async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
   try {
+    console.log('=== SVG GENERATION START ===');
     console.log('Scene data received for rendering');
     console.log('Scene data objects count:', sceneData.objects?.length || 0);
+    console.log('Full scene data:', JSON.stringify(sceneData, null, 2));
     
     // Extract canvas dimensions from scene data
     const width = sceneData.width || 800;
@@ -112,10 +114,21 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
       console.log('Processing objects...');
       for (let i = 0; i < sceneData.objects.length; i++) {
         const obj = sceneData.objects[i];
-        console.log(`Processing object ${i}: type=${obj.type}, left=${obj.left}, top=${obj.top}, text="${obj.text || 'N/A'}"`);
+        console.log(`Processing object ${i}:`, {
+          type: obj.type,
+          left: obj.left,
+          top: obj.top,
+          text: obj.text || 'N/A',
+          fill: obj.fill,
+          fontSize: obj.fontSize,
+          fontFamily: obj.fontFamily
+        });
         const objectSVG = renderObjectToSVG(obj);
         if (objectSVG) {
           svg += objectSVG;
+          console.log(`Added SVG for object ${i}:`, objectSVG.substring(0, 200) + '...');
+        } else {
+          console.log(`No SVG generated for object ${i}`);
         }
       }
     }
@@ -123,7 +136,9 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     svg += '</svg>';
     
     console.log('Generated SVG length:', svg.length);
-    console.log('SVG preview:', svg.substring(0, 1000) + '...');
+    console.log('=== COMPLETE SVG OUTPUT ===');
+    console.log(svg);
+    console.log('=== SVG GENERATION END ===');
     
     // Return the SVG as bytes
     return new TextEncoder().encode(svg);
@@ -145,11 +160,14 @@ function renderObjectToSVG(obj: any): string {
     switch (objectType) {
       case 'textbox':
       case 'text':
+        console.log('=== TEXT RENDERING START ===');
+        console.log('Text object details:', obj);
+        
         const x = obj.left || 0;
         const y = (obj.top || 0);
         const fontSize = obj.fontSize || 16;
         const fill = obj.fill || '#000000';
-        const fontFamily = obj.fontFamily || 'Arial, sans-serif';
+        const fontFamily = obj.fontFamily || 'Arial';
         const text = obj.text || '';
         
         // Handle text scaling if present
@@ -157,25 +175,15 @@ function renderObjectToSVG(obj: any): string {
         const scaleY = obj.scaleY || 1;
         const scaledFontSize = fontSize * Math.max(scaleX, scaleY);
         
-        console.log(`Text object: "${text}" at (${x}, ${y}), size: ${scaledFontSize}, fill: ${fill}`);
+        console.log(`Text rendering params: "${text}" at (${x}, ${y}), size: ${scaledFontSize}, fill: ${fill}`);
         
         if (!text || text.trim() === '') {
           console.log('Skipping empty text object');
           break;
         }
         
-        // Create a group for the text with proper positioning
-        svg += `<g transform="translate(${x}, ${y})">`;
-        
-        // Add white background for better visibility if text is dark
-        if (fill === '#000000' || fill === 'black') {
-          const textWidth = (obj.width || text.length * scaledFontSize * 0.6) * scaleX;
-          const textHeight = scaledFontSize * scaleY;
-          svg += `<rect x="-2" y="-2" width="${textWidth + 4}" height="${textHeight + 4}" fill="white" fill-opacity="0.9"/>`;
-        }
-        
-        // Use SVG text element with proper attributes
-        svg += `<text x="0" y="${scaledFontSize * 0.8}" font-family="${fontFamily}" font-size="${scaledFontSize}" fill="${fill}"`;
+        // Create text with absolute positioning and high contrast
+        svg += `<text x="${x}" y="${y + scaledFontSize}" font-family="Arial, sans-serif" font-size="${scaledFontSize}" fill="${fill}" stroke="none"`;
         
         // Add font weight and style if present
         if (obj.fontWeight && obj.fontWeight !== 'normal') {
@@ -189,11 +197,12 @@ function renderObjectToSVG(obj: any): string {
           svg += ` text-anchor="${anchor}"`;
         }
         
-        // Close the text element
-        svg += `>${escapeXml(text)}</text>`;
+        // Close the text element with escaped content
+        const textContent = escapeXml(text);
+        svg += `>${textContent}</text>`;
         
-        // Close the group
-        svg += `</g>`;
+        console.log(`Generated text SVG: <text x="${x}" y="${y + scaledFontSize}" font-family="Arial, sans-serif" font-size="${scaledFontSize}" fill="${fill}">${textContent}</text>`);
+        console.log('=== TEXT RENDERING END ===');
         
         break;
         
