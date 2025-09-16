@@ -122,39 +122,84 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     
     console.log(`Canvas dimensions: ${width}x${height}, background: ${backgroundColor}`);
     
-    // Create SVG with proper structure
+    // Create SVG with proper structure and styles
     let svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<defs>
+  <style>
+    text { 
+      font-family: Arial, Helvetica, sans-serif; 
+      font-weight: normal;
+      text-anchor: start;
+      dominant-baseline: text-before-edge;
+    }
+  </style>
+</defs>
 <rect width="100%" height="100%" fill="${backgroundColor}"/>`;
     
-    // Process each object in the scene data in order
+    // Separate objects into layers: images first, then text on top
+    const imageObjects = [];
+    const shapeObjects = [];
+    const textObjects = [];
+    
     if (sceneData.objects && Array.isArray(sceneData.objects)) {
-      console.log('Processing objects in order...');
-      
-      for (let i = 0; i < sceneData.objects.length; i++) {
-        const obj = sceneData.objects[i];
-        console.log(`Processing object ${i}:`, {
-          type: obj.type,
-          left: obj.left,
-          top: obj.top,
-          text: obj.text,
-          fill: obj.fill,
-          fontSize: obj.fontSize
-        });
+      sceneData.objects.forEach((obj, index) => {
+        const objectType = obj.type?.toLowerCase();
+        const hasText = obj.text && obj.text.trim() !== '';
         
-        const objectSVG = renderObjectToSVG(obj);
-        if (objectSVG) {
-          svg += objectSVG;
-          console.log(`Added SVG for object ${i}:`, objectSVG.substring(0, 100) + '...');
+        if (hasText || objectType === 'text') {
+          textObjects.push({ obj, index });
+        } else if (objectType === 'image') {
+          imageObjects.push({ obj, index });
+        } else {
+          shapeObjects.push({ obj, index });
         }
-      }
+      });
     }
+    
+    console.log(`Rendering layers: ${imageObjects.length} images, ${shapeObjects.length} shapes, ${textObjects.length} texts`);
+    
+    // Render images first (background layer)
+    imageObjects.forEach(({ obj, index }) => {
+      console.log(`Processing image object ${index}`);
+      const objectSVG = renderObjectToSVG(obj);
+      if (objectSVG) {
+        svg += objectSVG;
+        console.log(`Added image SVG for object ${index}`);
+      }
+    });
+    
+    // Render shapes second (middle layer)
+    shapeObjects.forEach(({ obj, index }) => {
+      console.log(`Processing shape object ${index}`);
+      const objectSVG = renderObjectToSVG(obj);
+      if (objectSVG) {
+        svg += objectSVG;
+        console.log(`Added shape SVG for object ${index}`);
+      }
+    });
+    
+    // Render text last (top layer) - this ensures text appears on top
+    textObjects.forEach(({ obj, index }) => {
+      console.log(`Processing text object ${index}:`, {
+        text: obj.text,
+        left: obj.left,
+        top: obj.top,
+        fill: obj.fill,
+        fontSize: obj.fontSize
+      });
+      const objectSVG = renderObjectToSVG(obj);
+      if (objectSVG) {
+        svg += objectSVG;
+        console.log(`Added text SVG for object ${index}: "${obj.text}"`);
+      }
+    });
     
     svg += '</svg>';
     
     console.log('Generated SVG length:', svg.length);
-    console.log('=== COMPLETE SVG OUTPUT (first 500 chars) ===');
-    console.log(svg.substring(0, 500));
+    console.log('=== COMPLETE SVG OUTPUT (first 800 chars) ===');
+    console.log(svg.substring(0, 800));
     console.log('=== SVG GENERATION END ===');
     
     // Return the SVG as bytes
@@ -186,14 +231,16 @@ function renderObjectToSVG(obj: any): string {
       const fontSize = Math.max(obj.fontSize || 24, 12);
       const fill = obj.fill || '#000000';
       const text = obj.text || '';
-      const fontFamily = obj.fontFamily || 'Arial';
+      const fontFamily = obj.fontFamily || 'Arial, sans-serif';
       
       console.log(`Text rendering params: "${text}" at (${x}, ${y}), size: ${fontSize}, fill: ${fill}`);
       
-      // Use proper text positioning for SVG
-      svg += `<text x="${x}" y="${y + fontSize}" font-family="${fontFamily}" font-size="${fontSize}" fill="${fill}">${escapeXml(text)}</text>`;
+      // Use proper text positioning for SVG - add fontSize to y to position text correctly
+      // and use style attribute for better font control with text shadow for visibility
+      const textShadow = fill === '#ffffff' || fill === 'white' ? 'text-shadow: 1px 1px 2px black;' : 'text-shadow: 1px 1px 2px white;';
+      svg += `<text x="${x}" y="${y + fontSize}" style="font-family: ${fontFamily}; font-size: ${fontSize}px; fill: ${fill}; font-weight: bold; stroke: ${fill === '#ffffff' ? '#000000' : '#ffffff'}; stroke-width: 0.5; paint-order: stroke fill;">${escapeXml(text)}</text>`;
       
-      console.log(`Generated text SVG: ${svg}`);
+      console.log(`Generated text SVG: <text x="${x}" y="${y + fontSize}" style="font-family: ${fontFamily}; font-size: ${fontSize}px; fill: ${fill}; font-weight: bold;">${escapeXml(text)}</text>`);
       console.log('=== TEXT RENDERING END ===');
       
       return svg;
