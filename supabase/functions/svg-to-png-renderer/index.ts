@@ -15,23 +15,14 @@ async function ensureWasmInit() {
   if (wasmInitialized) return;
   try {
     // Import the resvg-wasm module
-    resvgModule = await import("npm:@resvg/resvg-wasm@2.3.0");
-    console.log("Module imported, available exports:", Object.keys(resvgModule));
+    resvgModule = await import("npm:@resvg/resvg-wasm@2.6.2");
+    console.log("Module imported successfully");
     
-    // Try different initialization methods
-    if (typeof resvgModule.initWasm === "function") {
-      console.log("Using initWasm method");
-      await resvgModule.initWasm();
-    } else if (typeof resvgModule.default === "function") {
-      console.log("Using default function");
-      await resvgModule.default();
-    } else if (typeof resvgModule.init === "function") {
-      console.log("Using init function");
-      await resvgModule.init();
-    } else {
-      // Fallback: the module might be self-initializing
-      console.log("No explicit init function found, assuming auto-initialization");
-    }
+    // Initialize WASM with the correct method
+    await resvgModule.initWasm(
+      fetch("https://unpkg.com/@resvg/resvg-wasm@2.6.2/index_bg.wasm")
+    );
+    
     wasmInitialized = true;
     console.log("WASM initialization completed successfully");
   } catch (error) {
@@ -60,16 +51,6 @@ async function svgToPng(svg, width, height) {
   await ensureWasmInit();
   
   try {
-    console.log("Available in resvgModule:", Object.keys(resvgModule));
-    
-    // Try different ways to access the Resvg class
-    let Resvg = resvgModule.Resvg || resvgModule.default?.Resvg || resvgModule.default;
-    
-    if (!Resvg) {
-      console.error("Available properties:", Object.keys(resvgModule));
-      throw new Error("Resvg class not found in module");
-    }
-    
     console.log("Creating Resvg instance with SVG length:", svg.length);
     
     const options = {};
@@ -80,16 +61,17 @@ async function svgToPng(svg, width, height) {
       };
     }
     
-    const resvg = new Resvg(svg, options);
+    // Use the resvg module directly (it should be globally available after initWasm)
+    const resvgJS = new resvgModule.Resvg(svg, options);
     console.log("Resvg instance created, rendering...");
     
-    const pngData = resvg.render();
+    const pngData = resvgJS.render();
     console.log("Rendering complete, getting PNG bytes...");
     
-    const png = pngData.asPng();
-    console.log("PNG conversion successful, size:", png.length, "bytes");
+    const pngBuffer = pngData.asPng();
+    console.log("PNG conversion successful, size:", pngBuffer.length, "bytes");
     
-    return png;
+    return pngBuffer;
   } catch (error) {
     console.error("Error in svgToPng:", error);
     throw new Error(`SVG to PNG conversion failed: ${error.message}`);
