@@ -147,9 +147,12 @@ function renderObjectToSVG(obj: any): string {
       case 'textbox':
       case 'text':
         const x = obj.left || 0;
+        // In Fabric.js, 'top' is the top of the text box, but in SVG 'y' is the baseline
+        // We need to adjust for this difference
+        const y = (obj.top || 0);
         const fontSize = obj.fontSize || 16;
         const fill = obj.fill || '#000000';
-        const fontFamily = obj.fontFamily || 'Arial, sans-serif';
+        const fontFamily = obj.fontFamily || 'Arial';
         const text = obj.text || '';
         
         // Handle text scaling if present
@@ -157,46 +160,37 @@ function renderObjectToSVG(obj: any): string {
         const scaleY = obj.scaleY || 1;
         const scaledFontSize = fontSize * Math.max(scaleX, scaleY);
         
-        // Adjust y position - Fabric.js uses top-left, SVG text uses baseline
-        const adjustedY = (obj.top || 0) + scaledFontSize;
+        console.log(`Text object: "${text}" at (${x}, ${y}), size: ${scaledFontSize}, fill: ${fill}`);
         
-        console.log(`Text object: "${text}" at (${x}, ${adjustedY}), size: ${scaledFontSize}, fill: ${fill}`);
+        // Use dominant-baseline to control text positioning properly
+        svg += `<text x="${x}" y="${y}" font-family="${fontFamily}" font-size="${scaledFontSize}" fill="${fill}" dominant-baseline="hanging"`;
         
-        if (text.trim()) {
-          // Create a contrasting stroke for visibility
-          const isLightColor = fill === '#ffffff' || fill === '#fff' || fill.includes('rgb(255') || fill.includes('hsl(') && fill.includes('100%');
-          const strokeColor = isLightColor ? '#000000' : '#ffffff';
-          const strokeWidth = Math.max(1, scaledFontSize * 0.02);
-          
-          svg += `<text x="${x}" y="${adjustedY}" font-family="${fontFamily}" font-size="${scaledFontSize}" fill="${fill}"`;
-          
-          // Add stroke for better visibility
-          svg += ` stroke="${strokeColor}" stroke-width="${strokeWidth}"`;
-          
-          // Add font weight and style if present
-          if (obj.fontWeight && obj.fontWeight !== 'normal') {
-            svg += ` font-weight="${obj.fontWeight}"`;
-          }
-          if (obj.fontStyle && obj.fontStyle !== 'normal') {
-            svg += ` font-style="${obj.fontStyle}"`;
-          }
-          if (obj.textAlign) {
-            svg += ` text-anchor="${obj.textAlign === 'center' ? 'middle' : obj.textAlign === 'right' ? 'end' : 'start'}"`;
-          }
-          
-          // Add rotation if present
-          if (obj.angle) {
-            const centerX = x + (obj.width || text.length * scaledFontSize * 0.6) * scaleX / 2;
-            const centerY = adjustedY - scaledFontSize / 2;
-            svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
-          }
-          
-          // Add the text content
-          const textContent = escapeXml(text);
-          svg += `>${textContent}</text>`;
-          
-          console.log(`Generated SVG text element: x=${x}, y=${adjustedY}, fontSize=${scaledFontSize}, content="${textContent}"`);
+        // Add font weight and style if present
+        if (obj.fontWeight) {
+          svg += ` font-weight="${obj.fontWeight}"`;
         }
+        if (obj.fontStyle) {
+          svg += ` font-style="${obj.fontStyle}"`;
+        }
+        if (obj.textAlign) {
+          svg += ` text-anchor="${obj.textAlign === 'center' ? 'middle' : obj.textAlign === 'right' ? 'end' : 'start'}"`;
+        }
+        
+        // Add rotation if present
+        if (obj.angle) {
+          const centerX = x + (obj.width || 0) * scaleX / 2;
+          const centerY = y + (obj.height || scaledFontSize) * scaleY / 2;
+          svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
+        }
+        
+        // Ensure text is visible by adding stroke if fill is very light
+        const textContent = escapeXml(text);
+        svg += `>${textContent}</text>`;
+        
+        // Add a debug rectangle around text for troubleshooting (will remove later)
+        const textWidth = (obj.width || textContent.length * scaledFontSize * 0.6) * scaleX;
+        const textHeight = scaledFontSize * scaleY;
+        svg += `<rect x="${x}" y="${y}" width="${textWidth}" height="${textHeight}" fill="none" stroke="red" stroke-width="1" opacity="0.3"/>`;
         
         break;
         
