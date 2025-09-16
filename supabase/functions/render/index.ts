@@ -187,11 +187,6 @@ function renderObjectToSVG(obj: any): string {
         const textContent = escapeXml(text);
         svg += `>${textContent}</text>`;
         
-        // Add a debug rectangle around text for troubleshooting (will remove later)
-        const textWidth = (obj.width || textContent.length * scaledFontSize * 0.6) * scaleX;
-        const textHeight = scaledFontSize * scaleY;
-        svg += `<rect x="${x}" y="${y}" width="${textWidth}" height="${textHeight}" fill="none" stroke="red" stroke-width="1" opacity="0.3"/>`;
-        
         break;
         
       case 'rect':
