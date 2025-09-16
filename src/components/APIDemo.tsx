@@ -535,6 +535,47 @@ print(result["image_url"])`;
         </TabsContent>
 
         <TabsContent value="testing" className="space-y-6">
+          {/* Debug Test Button */}
+          <Card className="p-6 bg-yellow-50 border-yellow-200 dark:bg-yellow-900/20 dark:border-yellow-800">
+            <h3 className="font-semibold mb-4 flex items-center gap-2">
+              <TestTube className="h-4 w-4" />
+              Debug Test (Direct Database Query)
+            </h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              This test calls the render function directly with scene_data from the database to debug text rendering issues.
+            </p>
+            <Button 
+              onClick={async () => {
+                setIsLoading(true);
+                try {
+                  const response = await fetch(`${baseUrl}/test-render`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json'
+                    }
+                  });
+                  const result = await response.json();
+                  setResponse(JSON.stringify(result, null, 2));
+                  if (result.success) {
+                    toast.success("Debug test completed!");
+                  } else {
+                    toast.error(result.error || "Debug test failed");
+                  }
+                } catch (error) {
+                  toast.error("Debug test error");
+                  setResponse(JSON.stringify({ error: error.message }, null, 2));
+                } finally {
+                  setIsLoading(false);
+                }
+              }}
+              disabled={isLoading}
+              className="mr-4"
+            >
+              {isLoading ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : <TestTube className="h-4 w-4 mr-2" />}
+              Run Debug Test
+            </Button>
+          </Card>
+
           {/* Live API Tester */}
           <div className="grid lg:grid-cols-2 gap-6">
             <Card className="p-6">
