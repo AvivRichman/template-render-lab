@@ -25,6 +25,7 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState("upload");
   const [uploadedImage, setUploadedImage] = useState<string>("");
   const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const { user, isLoading, signOut } = useAuth();
   const { templates, refreshTemplates } = useTemplates();
   const navigate = useNavigate();
@@ -42,13 +43,17 @@ const Index = () => {
 
   const handleEditTemplate = (template: any) => {
     setSelectedTemplate(template.scene_data);
+    setSelectedTemplateId(template.id);
     setUploadedImage(""); // Clear uploaded image when loading template
     setActiveTab("editor");
   };
 
   const handleTemplateSaved = () => {
     refreshTemplates();
-    setActiveTab("templates");
+    // Clear selected template when saved as new template
+    if (!selectedTemplateId) {
+      setActiveTab("templates");
+    }
   };
 
   const handleSignOut = async () => {
@@ -133,6 +138,7 @@ const Index = () => {
                 <ImageEditor 
                   uploadedImage={uploadedImage} 
                   templateData={selectedTemplate}
+                  templateId={selectedTemplateId || undefined}
                   onTemplateSaved={handleTemplateSaved}
                 />
               </div>

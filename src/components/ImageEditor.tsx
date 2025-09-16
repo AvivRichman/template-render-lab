@@ -28,10 +28,11 @@ import { supabase } from "@/integrations/supabase/client";
 interface ImageEditorProps {
   uploadedImage?: string;
   templateData?: any;
+  templateId?: string;
   onTemplateSaved?: () => void;
 }
 
-export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: ImageEditorProps) => {
+export const ImageEditor = ({ uploadedImage, templateData, templateId, onTemplateSaved }: ImageEditorProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [fabricCanvas, setFabricCanvas] = useState<FabricCanvas | null>(null);
   const [selectedObject, setSelectedObject] = useState<any>(null);
@@ -40,7 +41,7 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [originalImageUrl, setOriginalImageUrl] = useState<string>("");
   
-  const { saveTemplate } = useTemplates();
+  const { saveTemplate, updateTemplate } = useTemplates();
   
   // Text properties
   const [textContent, setTextContent] = useState("Sample Text");
@@ -343,6 +344,44 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
     }
   };
 
+  const handleUpdateTemplate = async () => {
+    if (!fabricCanvas || !templateId) {
+      toast.error("No template to update");
+      return;
+    }
+
+    toast("Updating template...");
+
+    try {
+      const sceneData = fabricCanvas.toJSON();
+      
+      // Generate updated edited image
+      const editedImageDataURL = fabricCanvas.toDataURL({
+        format: 'png',
+        quality: 1,
+        multiplier: 1
+      });
+
+      // Upload the updated image
+      const editedImageUrl = await uploadImageToStorage(editedImageDataURL, `updated-${templateId}.png`);
+      
+      if (!editedImageUrl) {
+        toast.error("Failed to upload updated image");
+        return;
+      }
+
+      // Update the template with new scene data and image
+      const success = await updateTemplate(templateId, sceneData, editedImageUrl);
+      
+      if (success) {
+        onTemplateSaved?.();
+      }
+    } catch (error) {
+      console.error('Error updating template:', error);
+      toast.error("Failed to update template");
+    }
+  };
+
   useEffect(() => {
     updateSelectedText();
   }, [textContent, fontSize, textColor, fontFamily, isBold, isItalic, isUnderline, textAlign]);
@@ -533,11 +572,18 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
 
         {/* Export Controls */}
         <div className="space-y-2">
+          {templateId && (
+            <Button onClick={handleUpdateTemplate} className="w-full" size="sm">
+              <Save className="h-4 w-4 mr-2" />
+              Update Template
+            </Button>
+          )}
+          
           <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
             <DialogTrigger asChild>
-              <Button className="w-full" size="sm">
+              <Button className="w-full" size="sm" variant={templateId ? "outline" : "default"}>
                 <Save className="h-4 w-4 mr-2" />
-                Save as Template
+                Save as New Template
               </Button>
             </DialogTrigger>
             <DialogContent>
