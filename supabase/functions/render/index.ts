@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.2';
-import { createCanvas, loadImage } from "https://deno.land/x/canvas@v1.4.1/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -34,18 +33,18 @@ serve(async (req) => {
 
     console.log('Generating image...');
     
-    // Generate PNG directly from template scene data
+    // Generate SVG from template scene data
     const timestamp = Date.now();
-    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.png`;
+    const imagePath = `${user_id}/generated-${template_id}-${timestamp}.svg`;
     
-    // Create PNG from scene data
+    // Create SVG from scene data
     const imageBuffer = await generateImageFromSceneData(scene_data);
     
-    // Upload to storage as PNG
+    // Upload to storage as SVG
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('api-renders')
       .upload(imagePath, imageBuffer, {
-        contentType: 'image/png',
+        contentType: 'image/svg+xml',
         upsert: true
       });
     
@@ -54,12 +53,22 @@ serve(async (req) => {
       throw new Error(`Failed to upload image: ${uploadError.message}`);
     }
     
-    // Get the public URL for the uploaded PNG
-    const { data: urlData } = supabase.storage
-      .from('api-renders')
-      .getPublicUrl(imagePath);
+    console.log('SVG uploaded, now converting to PNG...');
     
-    const pngImageUrl = urlData.publicUrl;
+    // Call svg-to-png-renderer function to convert SVG to PNG
+    const pngResponse = await supabase.functions.invoke('svg-to-png-renderer', {
+      body: {
+        bucket: 'api-renders',
+        key: imagePath
+      }
+    });
+
+    if (pngResponse.error) {
+      console.error('PNG conversion error:', pngResponse.error);
+      throw new Error(`Failed to convert SVG to PNG: ${pngResponse.error.message}`);
+    }
+
+    const pngImageUrl = pngResponse.data.png_url;
     console.log('Generated PNG image URL:', pngImageUrl);
 
     return new Response(JSON.stringify({
@@ -81,7 +90,7 @@ serve(async (req) => {
   }
 });
 
-// Generate PNG directly from scene data using Canvas API
+// Generate SVG from scene data and return it as bytes for upload
 async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
   try {
     console.log('Scene data received for rendering');
@@ -94,13 +103,9 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     
     console.log(`Canvas dimensions: ${width}x${height}, background: ${backgroundColor}`);
     
-    // Create canvas
-    const canvas = createCanvas(width, height);
-    const ctx = canvas.getContext('2d');
-    
-    // Set background
-    ctx.fillStyle = backgroundColor;
-    ctx.fillRect(0, 0, width, height);
+    // Create SVG from scene data
+    let svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">`;
+    svg += `<rect width="100%" height="100%" fill="${backgroundColor}"/>`;
     
     // Process each object in the scene
     if (sceneData.objects && Array.isArray(sceneData.objects)) {
@@ -108,24 +113,31 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
       for (let i = 0; i < sceneData.objects.length; i++) {
         const obj = sceneData.objects[i];
         console.log(`Processing object ${i}: type=${obj.type}, left=${obj.left}, top=${obj.top}`);
-        await renderObjectToCanvas(ctx, obj);
+        const objectSVG = renderObjectToSVG(obj);
+        if (objectSVG) {
+          svg += objectSVG;
+        }
       }
     }
     
-    // Convert canvas to PNG bytes
-    const pngData = canvas.toBuffer('image/png');
-    console.log('Generated PNG, size:', pngData.length, 'bytes');
+    svg += '</svg>';
     
-    return pngData;
+    console.log('Generated SVG length:', svg.length);
+    console.log('SVG preview:', svg.substring(0, 500) + '...');
+    
+    // Return the SVG as bytes
+    return new TextEncoder().encode(svg);
     
   } catch (error) {
     console.error('Error generating image from scene data:', error);
-    return createFallbackPNG();
+    return createFallbackSVG();
   }
 }
 
-// Render a Fabric.js object to Canvas
-async function renderObjectToCanvas(ctx: any, obj: any): Promise<void> {
+// Render a Fabric.js object to SVG
+function renderObjectToSVG(obj: any): string {
+  let svg = '';
+  
   try {
     const objectType = obj.type?.toLowerCase();
     console.log(`Rendering object type: ${objectType}`);
@@ -147,30 +159,44 @@ async function renderObjectToCanvas(ctx: any, obj: any): Promise<void> {
         
         console.log(`Text object: "${text}" at (${x}, ${y}), size: ${scaledFontSize}, fill: ${fill}`);
         
-        // Set font properties
-        ctx.font = `${scaledFontSize}px ${fontFamily}`;
-        ctx.fillStyle = fill;
-        ctx.textBaseline = 'top';
+        // Calculate proper text positioning - Fabric.js uses top-left, SVG text uses baseline
+        const textY = y + scaledFontSize; // Adjust for baseline positioning
         
-        // Add text alignment
-        if (obj.textAlign) {
-          ctx.textAlign = obj.textAlign;
+        // Ensure text has a visible fill color
+        let textFill = fill;
+        if (!textFill || textFill === 'transparent' || textFill === 'none') {
+          textFill = '#000000'; // Default to black if no fill
         }
         
-        // Save context for rotation
+        // Create text element with proper positioning
+        svg += `<text x="${x}" y="${textY}" font-family="${fontFamily}" font-size="${scaledFontSize}" fill="${textFill}"`;
+        
+        // Add font weight and style if present
+        if (obj.fontWeight && obj.fontWeight !== 'normal') {
+          svg += ` font-weight="${obj.fontWeight}"`;
+        }
+        if (obj.fontStyle && obj.fontStyle !== 'normal') {
+          svg += ` font-style="${obj.fontStyle}"`;
+        }
+        if (obj.textAlign && obj.textAlign !== 'left') {
+          svg += ` text-anchor="${obj.textAlign === 'center' ? 'middle' : obj.textAlign === 'right' ? 'end' : 'start'}"`;
+        }
+        
+        // Add stroke for better visibility
+        svg += ` stroke="none"`;
+        
+        // Add rotation if present
         if (obj.angle) {
-          ctx.save();
-          const centerX = x + (obj.width || ctx.measureText(text).width) / 2;
+          const centerX = x + (obj.width || text.length * scaledFontSize * 0.6) * scaleX / 2;
           const centerY = y + scaledFontSize / 2;
-          ctx.translate(centerX, centerY);
-          ctx.rotate((obj.angle * Math.PI) / 180);
-          ctx.fillText(text, -((obj.width || ctx.measureText(text).width) / 2), -(scaledFontSize / 2));
-          ctx.restore();
-        } else {
-          ctx.fillText(text, x, y);
+          svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
         }
         
-        console.log(`Rendered text: "${text}" at (${x}, ${y})`);
+        const textContent = escapeXml(text);
+        svg += `>${textContent}</text>`;
+        
+        console.log(`Generated SVG text element: x=${x}, y=${textY}, fontSize=${scaledFontSize}, content="${textContent}"`);
+        
         break;
         
       case 'rect':
@@ -180,22 +206,24 @@ async function renderObjectToCanvas(ctx: any, obj: any): Promise<void> {
         const rectWidth = (obj.width || 100) * (obj.scaleX || 1);
         const rectHeight = (obj.height || 100) * (obj.scaleY || 1);
         const rectFill = obj.fill || '#000000';
+        const rectStroke = obj.stroke || 'none';
+        const rectStrokeWidth = obj.strokeWidth || 0;
         
         console.log(`Rectangle: (${rectX}, ${rectY}) ${rectWidth}x${rectHeight}, fill: ${rectFill}`);
         
-        ctx.fillStyle = rectFill;
+        svg += `<rect x="${rectX}" y="${rectY}" width="${rectWidth}" height="${rectHeight}" fill="${rectFill}"`;
+        
+        if (rectStroke !== 'none' && rectStrokeWidth > 0) {
+          svg += ` stroke="${rectStroke}" stroke-width="${rectStrokeWidth}"`;
+        }
         
         if (obj.angle) {
-          ctx.save();
           const centerX = rectX + rectWidth / 2;
           const centerY = rectY + rectHeight / 2;
-          ctx.translate(centerX, centerY);
-          ctx.rotate((obj.angle * Math.PI) / 180);
-          ctx.fillRect(-rectWidth / 2, -rectHeight / 2, rectWidth, rectHeight);
-          ctx.restore();
-        } else {
-          ctx.fillRect(rectX, rectY, rectWidth, rectHeight);
+          svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
         }
+        
+        svg += `/>`;
         break;
         
       case 'circle':
@@ -203,13 +231,22 @@ async function renderObjectToCanvas(ctx: any, obj: any): Promise<void> {
         const circleY = (obj.top || 0) + (obj.radius || 50) * (obj.scaleY || 1);
         const radius = (obj.radius || 50) * Math.max(obj.scaleX || 1, obj.scaleY || 1);
         const circleFill = obj.fill || '#000000';
+        const circleStroke = obj.stroke || 'none';
+        const circleStrokeWidth = obj.strokeWidth || 0;
         
         console.log(`Circle: center (${circleX}, ${circleY}), radius: ${radius}, fill: ${circleFill}`);
         
-        ctx.fillStyle = circleFill;
-        ctx.beginPath();
-        ctx.arc(circleX, circleY, radius, 0, 2 * Math.PI);
-        ctx.fill();
+        svg += `<circle cx="${circleX}" cy="${circleY}" r="${radius}" fill="${circleFill}"`;
+        
+        if (circleStroke !== 'none' && circleStrokeWidth > 0) {
+          svg += ` stroke="${circleStroke}" stroke-width="${circleStrokeWidth}"`;
+        }
+        
+        if (obj.angle) {
+          svg += ` transform="rotate(${obj.angle} ${circleX} ${circleY})"`;
+        }
+        
+        svg += `/>`;
         break;
         
       case 'image':
@@ -221,26 +258,15 @@ async function renderObjectToCanvas(ctx: any, obj: any): Promise<void> {
           
           console.log(`Image: (${imgX}, ${imgY}) ${imgWidth}x${imgHeight}, src: ${obj.src.substring(0, 50)}...`);
           
-          try {
-            const image = await loadImage(obj.src);
-            
-            if (obj.angle) {
-              ctx.save();
-              const centerX = imgX + imgWidth / 2;
-              const centerY = imgY + imgHeight / 2;
-              ctx.translate(centerX, centerY);
-              ctx.rotate((obj.angle * Math.PI) / 180);
-              ctx.drawImage(image, -imgWidth / 2, -imgHeight / 2, imgWidth, imgHeight);
-              ctx.restore();
-            } else {
-              ctx.drawImage(image, imgX, imgY, imgWidth, imgHeight);
-            }
-          } catch (imageError) {
-            console.error('Error loading image:', imageError);
-            // Draw a placeholder rectangle
-            ctx.fillStyle = '#cccccc';
-            ctx.fillRect(imgX, imgY, imgWidth, imgHeight);
+          svg += `<image x="${imgX}" y="${imgY}" width="${imgWidth}" height="${imgHeight}" href="${obj.src}"`;
+          
+          if (obj.angle) {
+            const centerX = imgX + imgWidth / 2;
+            const centerY = imgY + imgHeight / 2;
+            svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
           }
+          
+          svg += `/>`;
         }
         break;
         
@@ -254,12 +280,15 @@ async function renderObjectToCanvas(ctx: any, obj: any): Promise<void> {
         
         console.log(`Line: (${x1}, ${y1}) to (${x2}, ${y2}), stroke: ${lineStroke}`);
         
-        ctx.strokeStyle = lineStroke;
-        ctx.lineWidth = lineStrokeWidth;
-        ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
-        ctx.stroke();
+        svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${lineStroke}" stroke-width="${lineStrokeWidth}"`;
+        
+        if (obj.angle) {
+          const centerX = (x1 + x2) / 2;
+          const centerY = (y1 + y2) / 2;
+          svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
+        }
+        
+        svg += `/>`;
         break;
         
       default:
@@ -274,13 +303,14 @@ async function renderObjectToCanvas(ctx: any, obj: any): Promise<void> {
           
           console.log(`Generic object: (${genX}, ${genY}) ${genWidth}x${genHeight}, fill: ${genFill}`);
           
-          ctx.fillStyle = genFill;
-          ctx.fillRect(genX, genY, genWidth, genHeight);
+          svg += `<rect x="${genX}" y="${genY}" width="${genWidth}" height="${genHeight}" fill="${genFill}"/>`;
         }
     }
   } catch (error) {
-    console.error('Error rendering object to canvas:', error, 'Object:', obj);
+    console.error('Error rendering object to SVG:', error, 'Object:', obj);
   }
+  
+  return svg;
 }
 
 // Helper function to escape XML special characters
@@ -297,35 +327,30 @@ function escapeXml(unsafe: string): string {
   });
 }
 
-// Create a simple fallback PNG for errors
-function createFallbackPNG(): Uint8Array {
-  console.log('Creating fallback PNG');
+// Helper function to escape XML special characters
+function escapeXml(unsafe: string): string {
+  return unsafe.replace(/[<>&'"]/g, function (c) {
+    switch (c) {
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '&': return '&amp;';
+      case '\'': return '&apos;';
+      case '"': return '&quot;';
+      default: return c;
+    }
+  });
+}
+
+// Create a simple fallback SVG for errors
+function createFallbackSVG(): Uint8Array {
+  console.log('Creating fallback SVG');
   
-  try {
-    const canvas = createCanvas(400, 300);
-    const ctx = canvas.getContext('2d');
-    
-    // Set background
-    ctx.fillStyle = '#f8f9fa';
-    ctx.fillRect(0, 0, 400, 300);
-    
-    // Add error text
-    ctx.fillStyle = '#dc3545';
-    ctx.font = '16px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('Error generating image', 200, 150);
-    
-    return canvas.toBuffer('image/png');
-  } catch (error) {
-    console.error('Error creating fallback PNG:', error);
-    // Return a minimal valid PNG as fallback
-    const minimalPNG = new Uint8Array([
-      137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
-      0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0, 144, 119, 83, 222,
-      0, 0, 0, 12, 73, 68, 65, 84, 8, 215, 99, 248, 15, 0, 0, 1,
-      0, 1, 53, 109, 113, 168, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130
-    ]);
-    return minimalPNG;
-  }
+  const fallbackSVG = `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+    <rect width="100%" height="100%" fill="#f8f9fa"/>
+    <text x="200" y="150" text-anchor="middle" font-family="Arial" font-size="16" fill="#dc3545">
+      Error generating image
+    </text>
+  </svg>`;
+  
+  return new TextEncoder().encode(fallbackSVG);
 }
