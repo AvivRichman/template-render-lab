@@ -39,8 +39,9 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
   const [templateName, setTemplateName] = useState("");
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [originalImageUrl, setOriginalImageUrl] = useState<string>("");
+  const [currentTemplateId, setCurrentTemplateId] = useState<string | null>(null);
   
-  const { saveTemplate } = useTemplates();
+  const { saveTemplate, updateTemplate } = useTemplates();
   
   // Text properties
   const [textContent, setTextContent] = useState("Sample Text");
@@ -94,7 +95,11 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
 
     // Load template data if provided
     if (templateData) {
-      canvas.loadFromJSON(templateData, () => {
+      // Set the current template ID if this is an existing template
+      if (templateData.id) {
+        setCurrentTemplateId(templateData.id);
+      }
+      canvas.loadFromJSON(templateData.scene_data || templateData, () => {
         canvas.renderAll();
       });
     }
@@ -120,6 +125,62 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
       canvas.dispose();
     };
   }, [uploadedImage, templateData]);
+
+  // Auto-save function to update template with current canvas state
+  const handleUpdateTemplate = async () => {
+    if (!fabricCanvas || !currentTemplateId) {
+      toast.error("No template to update");
+      return;
+    }
+
+    toast("Updating template...");
+
+    try {
+      const sceneData = fabricCanvas.toJSON();
+      
+      // Generate new thumbnail and edited image
+      const thumbnailDataURL = fabricCanvas.toDataURL({
+        format: 'png',
+        quality: 0.8,
+        multiplier: 0.3
+      });
+
+      const editedImageDataURL = fabricCanvas.toDataURL({
+        format: 'png',
+        quality: 1,
+        multiplier: 1
+      });
+
+      // Upload new images
+      const uploadPromises = [
+        uploadImageToStorage(thumbnailDataURL, `template-${currentTemplateId}-thumbnail.png`),
+        uploadImageToStorage(editedImageDataURL, `template-${currentTemplateId}-edited.png`)
+      ];
+
+      const [thumbnailUrl, editedImageUrl] = await Promise.all(uploadPromises);
+
+      if (!thumbnailUrl || !editedImageUrl) {
+        toast.error("Failed to upload images");
+        return;
+      }
+
+      // Update template in database
+      const updatedTemplate = await updateTemplate(
+        currentTemplateId,
+        sceneData,
+        thumbnailUrl,
+        editedImageUrl
+      );
+      
+      if (updatedTemplate) {
+        toast.success("Template updated successfully!");
+        onTemplateSaved?.();
+      }
+    } catch (error) {
+      console.error('Error updating template:', error);
+      toast.error("Failed to update template");
+    }
+  };
 
   const addText = () => {
     if (!fabricCanvas) return;
@@ -533,6 +594,13 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
 
         {/* Export Controls */}
         <div className="space-y-2">
+          {currentTemplateId && (
+            <Button onClick={handleUpdateTemplate} className="w-full" size="sm">
+              <Save className="h-4 w-4 mr-2" />
+              Update Template
+            </Button>
+          )}
+          
           <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
             <DialogTrigger asChild>
               <Button className="w-full" size="sm">
