@@ -108,10 +108,10 @@ serve(async (req) => {
   }
 });
 
-// Generate SVG from scene data and return it as bytes for upload
+// Generate SVG from scene data and return it as bytes for upload - resvg-wasm optimized
 async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
   try {
-    console.log('=== SVG GENERATION START ===');
+    console.log('=== SVG GENERATION START (resvg-wasm optimized) ===');
     console.log('Scene data received for rendering');
     console.log('Scene data objects count:', sceneData.objects?.length || 0);
     console.log('Full scene data:', JSON.stringify(sceneData, null, 2));
@@ -123,13 +123,14 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     
     console.log(`Canvas dimensions: ${width}x${height}, background: ${backgroundColor}`);
     
-    // Create SVG from scene data with proper structure
-    let svg = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">`;
+    // Create resvg-wasm compatible SVG with proper XML declaration and namespace
+    let svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">`;
     svg += `<rect width="100%" height="100%" fill="${backgroundColor}"/>`;
     
     // Process each object in the scene
     if (sceneData.objects && Array.isArray(sceneData.objects)) {
-      console.log('Processing objects...');
+      console.log('Processing objects for resvg-wasm...');
       for (let i = 0; i < sceneData.objects.length; i++) {
         const obj = sceneData.objects[i];
         console.log(`Processing object ${i}:`, {
@@ -144,7 +145,7 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
         const objectSVG = renderObjectToSVG(obj);
         if (objectSVG) {
           svg += objectSVG;
-          console.log(`Added SVG for object ${i}:`, objectSVG.substring(0, 200) + '...');
+          console.log(`Added resvg-compatible SVG for object ${i}:`, objectSVG.substring(0, 200) + '...');
         } else {
           console.log(`No SVG generated for object ${i}`);
         }
@@ -153,8 +154,8 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     
     svg += '</svg>';
     
-    console.log('Generated SVG length:', svg.length);
-    console.log('=== COMPLETE SVG OUTPUT ===');
+    console.log('Generated resvg-compatible SVG length:', svg.length);
+    console.log('=== COMPLETE RESVG-COMPATIBLE SVG OUTPUT ===');
     console.log(svg);
     console.log('=== SVG GENERATION END ===');
     
@@ -162,12 +163,12 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     return new TextEncoder().encode(svg);
     
   } catch (error) {
-    console.error('Error generating image from scene data:', error);
+    console.error('Error generating resvg-compatible image from scene data:', error);
     return createFallbackSVG();
   }
 }
 
-// Render a Fabric.js object to SVG
+// Render a Fabric.js object to SVG - resvg-wasm compatible version
 function renderObjectToSVG(obj: any): string {
   let svg = '';
   
@@ -175,9 +176,9 @@ function renderObjectToSVG(obj: any): string {
     const objectType = obj.type?.toLowerCase();
     console.log(`Rendering object type: ${objectType}, has text: ${!!obj.text}`);
     
-    // Handle any object with text content, regardless of type
+    // Handle any object with text content, regardless of type - resvg-wasm optimized
     if (obj.text && obj.text.trim() !== '') {
-      console.log('=== TEXT RENDERING START ===');
+      console.log('=== TEXT RENDERING START (resvg-wasm compatible) ===');
       console.log('Text object details:', obj);
       
       const x = obj.left || 0;
@@ -186,16 +187,28 @@ function renderObjectToSVG(obj: any): string {
       const fill = obj.fill || '#000000';
       const text = obj.text || '';
       
-      console.log(`Text rendering params: "${text}" at (${x}, ${y}), size: ${fontSize}, fill: ${fill}`);
+      // Use generic system fonts that resvg-wasm supports
+      let fontFamily = 'sans-serif'; // Default safe fallback
+      if (obj.fontFamily) {
+        const lowerFont = obj.fontFamily.toLowerCase();
+        if (lowerFont.includes('arial') || lowerFont.includes('helvetica') || lowerFont.includes('sans')) {
+          fontFamily = 'sans-serif';
+        } else if (lowerFont.includes('times') || lowerFont.includes('serif')) {
+          fontFamily = 'serif';
+        } else if (lowerFont.includes('courier') || lowerFont.includes('mono')) {
+          fontFamily = 'monospace';
+        }
+      }
       
-      // Use a very simple SVG text approach that works with resvg-wasm
-      // Position text with proper baseline offset
-      const textY = y + fontSize;
+      console.log(`Text rendering params: "${text}" at (${x}, ${y}), size: ${fontSize}, fill: ${fill}, font: ${fontFamily}`);
       
-      // Create simple text element without complex attributes
-      svg += `<text x="${x}" y="${textY}" font-family="Arial, sans-serif" font-size="${fontSize}" fill="${fill}" stroke="none" text-anchor="start">${escapeXml(text)}</text>`;
+      // Position text properly for resvg-wasm - use dominant-baseline for better compatibility
+      const textY = y + (fontSize * 0.8); // Adjust baseline for resvg-wasm
       
-      console.log(`Generated text SVG: <text x="${x}" y="${textY}" font-family="Arial, sans-serif" font-size="${fontSize}" fill="${fill}">${escapeXml(text)}</text>`);
+      // Create resvg-wasm optimized text element with explicit attributes
+      svg += `<text x="${x}" y="${textY}" font-family="${fontFamily}" font-size="${fontSize}px" fill="${fill}" text-anchor="start" dominant-baseline="alphabetic" font-weight="normal" font-style="normal">${escapeXml(text)}</text>`;
+      
+      console.log(`Generated resvg-compatible text SVG: <text x="${x}" y="${textY}" font-family="${fontFamily}" font-size="${fontSize}px" fill="${fill}">${escapeXml(text)}</text>`);
       console.log('=== TEXT RENDERING END ===');
       
       return svg;
