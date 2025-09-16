@@ -122,7 +122,7 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     
     console.log(`📐 Canvas dimensions: ${width}x${height}, background: ${backgroundColor}`);
     
-    // Create SVG with proper structure and styles
+    // Create SVG with proper structure and styles for maximum text visibility
     let svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
 <defs>
@@ -137,72 +137,57 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
 </defs>
 <rect width="100%" height="100%" fill="${backgroundColor}"/>`;
     
-    // Separate objects into layers: images first, then text on top
-    const imageObjects = [];
-    const shapeObjects = [];
-    const textObjects = [];
+    // Render all objects in proper layering order: images first, then shapes, then text on top
+    const allObjects = sceneData.objects || [];
     
-    if (sceneData.objects && Array.isArray(sceneData.objects)) {
-      sceneData.objects.forEach((obj, index) => {
-        const objectType = obj.type?.toLowerCase();
-        const hasText = obj.text && obj.text.trim() !== '';
-        
-        console.log(`🏷️ Categorizing object ${index}: type="${objectType}", hasText=${hasText}, text="${obj.text}"`);
-        
-        if (hasText || objectType === 'text') {
-          textObjects.push({ obj, index });
-          console.log(`📝 Added to textObjects: object ${index} with text "${obj.text}"`);
-        } else if (objectType === 'image') {
-          imageObjects.push({ obj, index });
-          console.log(`🖼️ Added to imageObjects: object ${index}`);
-        } else {
-          shapeObjects.push({ obj, index });
-          console.log(`🔷 Added to shapeObjects: object ${index} type "${objectType}"`);
+    // First pass: render images (background layer)
+    allObjects.forEach((obj, index) => {
+      if (obj.type?.toLowerCase() === 'image') {
+        console.log(`🖼️ Processing image object ${index}`);
+        const objectSVG = renderObjectToSVG(obj);
+        if (objectSVG) {
+          svg += objectSVG;
+          console.log(`✅ Added image SVG for object ${index}`);
         }
-      });
-    }
-    
-    console.log(`📊 Final categorization: ${imageObjects.length} images, ${shapeObjects.length} shapes, ${textObjects.length} texts`);
-    console.log(`🔍 Text objects details:`, textObjects.map(t => ({ index: t.index, text: t.obj.text, type: t.obj.type })));
-    
-    // Render images first (background layer)
-    imageObjects.forEach(({ obj, index }) => {
-      console.log(`🖼️ Processing image object ${index}`);
-      const objectSVG = renderObjectToSVG(obj);
-      if (objectSVG) {
-        svg += objectSVG;
-        console.log(`✅ Added image SVG for object ${index}`);
       }
     });
     
-    // Render shapes second (middle layer)
-    shapeObjects.forEach(({ obj, index }) => {
-      console.log(`🔷 Processing shape object ${index}`);
-      const objectSVG = renderObjectToSVG(obj);
-      if (objectSVG) {
-        svg += objectSVG;
-        console.log(`✅ Added shape SVG for object ${index}`);
+    // Second pass: render shapes (middle layer)
+    allObjects.forEach((obj, index) => {
+      const objectType = obj.type?.toLowerCase();
+      const hasText = obj.text && obj.text.trim() !== '';
+      
+      if (objectType !== 'image' && !hasText && objectType !== 'text') {
+        console.log(`🔷 Processing shape object ${index}`);
+        const objectSVG = renderObjectToSVG(obj);
+        if (objectSVG) {
+          svg += objectSVG;
+          console.log(`✅ Added shape SVG for object ${index}`);
+        }
       }
     });
     
-    // Render text last (top layer) - this ensures text appears on top
-    console.log(`📝 Starting text rendering phase with ${textObjects.length} text objects...`);
-    textObjects.forEach(({ obj, index }) => {
-      console.log(`🎯 Processing text object ${index}:`, {
-        text: obj.text,
-        left: obj.left,
-        top: obj.top,
-        fill: obj.fill,
-        fontSize: obj.fontSize,
-        type: obj.type
-      });
-      const objectSVG = renderObjectToSVG(obj);
-      if (objectSVG) {
-        svg += objectSVG;
-        console.log(`✅ Successfully added text SVG for object ${index}: "${obj.text}"`);
-        console.log(`📄 Text SVG content: ${objectSVG}`);
-      } else {
-        console.log(`❌ Failed to generate SVG for text object ${index}: "${obj.text}"`);
+    // Third pass: render text (top layer - ensures text is always visible)
+    allObjects.forEach((obj, index) => {
+      const objectType = obj.type?.toLowerCase();
+      const hasText = obj.text && obj.text.trim() !== '';
+      
+      if (hasText || objectType === 'text') {
+        console.log(`📝 Processing text object ${index}:`, {
+          text: obj.text,
+          left: obj.left,
+          top: obj.top,
+          fill: obj.fill,
+          fontSize: obj.fontSize,
+          type: obj.type
+        });
+        const objectSVG = renderObjectToSVG(obj);
+        if (objectSVG) {
+          svg += objectSVG;
+          console.log(`✅ Successfully added text SVG for object ${index}: "${obj.text}"`);
+        } else {
+          console.log(`❌ Failed to generate SVG for text object ${index}: "${obj.text}"`);
+        }
       }
     });
     
@@ -239,16 +224,24 @@ function renderObjectToSVG(obj: any): string {
       
       const x = obj.left || 0;
       const y = obj.top || 0;
-      const fontSize = Math.max(obj.fontSize || 24, 12);
+      const fontSize = Math.max(obj.fontSize || 24, 16);
       const fill = obj.fill || '#000000';
       const text = obj.text || '';
       const fontFamily = obj.fontFamily || 'Arial, sans-serif';
       
       console.log(`📋 Text rendering params: "${text}" at (${x}, ${y}), size: ${fontSize}px, fill: ${fill}, family: ${fontFamily}`);
       
-      // Create a highly visible text element with contrasting stroke
-      const strokeColor = fill === '#ffffff' || fill === 'white' || fill === '#fff' ? '#000000' : '#ffffff';
-      const textSvg = `<text x="${x}" y="${y + fontSize}" style="font-family: ${fontFamily}; font-size: ${fontSize}px; fill: ${fill}; font-weight: bold; stroke: ${strokeColor}; stroke-width: 1; paint-order: stroke fill;">${escapeXml(text)}</text>`;
+      // Create highly visible text with strong contrast
+      // Use white stroke on dark text, black stroke on light text
+      const isLightColor = fill === '#ffffff' || fill === 'white' || fill === '#fff' || 
+                          (fill.startsWith('#') && parseInt(fill.slice(1), 16) > 0x888888);
+      const strokeColor = isLightColor ? '#000000' : '#ffffff';
+      const strokeWidth = Math.max(2, fontSize / 12);
+      
+      // Ensure text is positioned correctly (SVG y is baseline, not top)
+      const textY = y + fontSize * 0.8; // Adjust for baseline positioning
+      
+      const textSvg = `<text x="${x}" y="${textY}" style="font-family: ${fontFamily}; font-size: ${fontSize}px; fill: ${fill}; font-weight: bold; stroke: ${strokeColor}; stroke-width: ${strokeWidth}; paint-order: stroke fill; dominant-baseline: text-before-edge;">${escapeXml(text)}</text>`;
       
       console.log(`✅ Generated text SVG: ${textSvg}`);
       console.log('=== 📝 TEXT RENDERING END ===');
