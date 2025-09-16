@@ -103,8 +103,8 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     
     console.log(`Canvas dimensions: ${width}x${height}, background: ${backgroundColor}`);
     
-    // Create SVG from scene data
-    let svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">`;
+    // Create SVG from scene data with proper structure
+    let svg = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">`;
     svg += `<rect width="100%" height="100%" fill="${backgroundColor}"/>`;
     
     // Process each object in the scene
@@ -112,7 +112,7 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
       console.log('Processing objects...');
       for (let i = 0; i < sceneData.objects.length; i++) {
         const obj = sceneData.objects[i];
-        console.log(`Processing object ${i}: type=${obj.type}, left=${obj.left}, top=${obj.top}`);
+        console.log(`Processing object ${i}: type=${obj.type}, left=${obj.left}, top=${obj.top}, text="${obj.text || 'N/A'}"`);
         const objectSVG = renderObjectToSVG(obj);
         if (objectSVG) {
           svg += objectSVG;
@@ -123,10 +123,9 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     svg += '</svg>';
     
     console.log('Generated SVG length:', svg.length);
-    console.log('SVG preview:', svg.substring(0, 500) + '...');
+    console.log('SVG preview:', svg.substring(0, 1000) + '...');
     
-    // Instead of converting to PNG (which is complex in Deno), 
-    // return the SVG as bytes - browsers can display SVG files directly
+    // Return the SVG as bytes
     return new TextEncoder().encode(svg);
     
   } catch (error) {
@@ -147,12 +146,10 @@ function renderObjectToSVG(obj: any): string {
       case 'textbox':
       case 'text':
         const x = obj.left || 0;
-        // In Fabric.js, 'top' is the top of the text box, but in SVG 'y' is the baseline
-        // We need to adjust for this difference
         const y = (obj.top || 0);
         const fontSize = obj.fontSize || 16;
         const fill = obj.fill || '#000000';
-        const fontFamily = obj.fontFamily || 'Arial';
+        const fontFamily = obj.fontFamily || 'Arial, sans-serif';
         const text = obj.text || '';
         
         // Handle text scaling if present
@@ -162,35 +159,41 @@ function renderObjectToSVG(obj: any): string {
         
         console.log(`Text object: "${text}" at (${x}, ${y}), size: ${scaledFontSize}, fill: ${fill}`);
         
-        // Use dominant-baseline to control text positioning properly
-        svg += `<text x="${x}" y="${y}" font-family="${fontFamily}" font-size="${scaledFontSize}" fill="${fill}" dominant-baseline="hanging"`;
+        if (!text || text.trim() === '') {
+          console.log('Skipping empty text object');
+          break;
+        }
+        
+        // Create a group for the text with proper positioning
+        svg += `<g transform="translate(${x}, ${y})">`;
+        
+        // Add white background for better visibility if text is dark
+        if (fill === '#000000' || fill === 'black') {
+          const textWidth = (obj.width || text.length * scaledFontSize * 0.6) * scaleX;
+          const textHeight = scaledFontSize * scaleY;
+          svg += `<rect x="-2" y="-2" width="${textWidth + 4}" height="${textHeight + 4}" fill="white" fill-opacity="0.9"/>`;
+        }
+        
+        // Use SVG text element with proper attributes
+        svg += `<text x="0" y="${scaledFontSize * 0.8}" font-family="${fontFamily}" font-size="${scaledFontSize}" fill="${fill}"`;
         
         // Add font weight and style if present
-        if (obj.fontWeight) {
+        if (obj.fontWeight && obj.fontWeight !== 'normal') {
           svg += ` font-weight="${obj.fontWeight}"`;
         }
-        if (obj.fontStyle) {
+        if (obj.fontStyle && obj.fontStyle !== 'normal') {
           svg += ` font-style="${obj.fontStyle}"`;
         }
         if (obj.textAlign) {
-          svg += ` text-anchor="${obj.textAlign === 'center' ? 'middle' : obj.textAlign === 'right' ? 'end' : 'start'}"`;
+          const anchor = obj.textAlign === 'center' ? 'middle' : obj.textAlign === 'right' ? 'end' : 'start';
+          svg += ` text-anchor="${anchor}"`;
         }
         
-        // Add rotation if present
-        if (obj.angle) {
-          const centerX = x + (obj.width || 0) * scaleX / 2;
-          const centerY = y + (obj.height || scaledFontSize) * scaleY / 2;
-          svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
-        }
+        // Close the text element
+        svg += `>${escapeXml(text)}</text>`;
         
-        // Ensure text is visible by adding stroke if fill is very light
-        const textContent = escapeXml(text);
-        svg += `>${textContent}</text>`;
-        
-        // Add a debug rectangle around text for troubleshooting (will remove later)
-        const textWidth = (obj.width || textContent.length * scaledFontSize * 0.6) * scaleX;
-        const textHeight = scaledFontSize * scaleY;
-        svg += `<rect x="${x}" y="${y}" width="${textWidth}" height="${textHeight}" fill="none" stroke="red" stroke-width="1" opacity="0.3"/>`;
+        // Close the group
+        svg += `</g>`;
         
         break;
         
