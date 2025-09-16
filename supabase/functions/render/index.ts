@@ -24,6 +24,24 @@ serve(async (req) => {
     }
 
     console.log('Rendering template:', template_id);
+    console.log('Scene data structure:', JSON.stringify(scene_data, null, 2));
+    console.log('Objects count:', scene_data.objects?.length || 0);
+    
+    // Log each object to understand the structure
+    if (scene_data.objects) {
+      scene_data.objects.forEach((obj, index) => {
+        console.log(`Object ${index}:`, {
+          type: obj.type,
+          text: obj.text,
+          left: obj.left,
+          top: obj.top,
+          fill: obj.fill,
+          fontSize: obj.fontSize,
+          hasText: !!obj.text,
+          keys: Object.keys(obj)
+        });
+      });
+    }
 
     // Initialize Supabase client
     const supabase = createClient(
@@ -155,39 +173,35 @@ function renderObjectToSVG(obj: any): string {
   
   try {
     const objectType = obj.type?.toLowerCase();
-    console.log(`Rendering object type: ${objectType}`);
+    console.log(`Rendering object type: ${objectType}, has text: ${!!obj.text}`);
+    
+    // Handle any object with text content, regardless of type
+    if (obj.text && obj.text.trim() !== '') {
+      console.log('=== TEXT RENDERING START ===');
+      console.log('Text object details:', obj);
+      
+      const x = obj.left || 0;
+      const y = obj.top || 0;
+      const fontSize = obj.fontSize || 24;
+      const fill = obj.fill || '#000000';
+      const text = obj.text || '';
+      
+      console.log(`Text rendering params: "${text}" at (${x}, ${y}), size: ${fontSize}, fill: ${fill}`);
+      
+      // Use a very simple SVG text approach that works with resvg-wasm
+      // Position text with proper baseline offset
+      const textY = y + fontSize;
+      
+      // Create simple text element without complex attributes
+      svg += `<text x="${x}" y="${textY}" font-family="Arial, sans-serif" font-size="${fontSize}" fill="${fill}" stroke="none" text-anchor="start">${escapeXml(text)}</text>`;
+      
+      console.log(`Generated text SVG: <text x="${x}" y="${textY}" font-family="Arial, sans-serif" font-size="${fontSize}" fill="${fill}">${escapeXml(text)}</text>`);
+      console.log('=== TEXT RENDERING END ===');
+      
+      return svg;
+    }
     
     switch (objectType) {
-      case 'textbox':
-      case 'text':
-        console.log('=== TEXT RENDERING START ===');
-        console.log('Text object details:', obj);
-        
-        const x = obj.left || 0;
-        const y = obj.top || 0;
-        const fontSize = obj.fontSize || 24;
-        const fill = obj.fill || '#000000';
-        const text = obj.text || '';
-        
-        console.log(`Text rendering params: "${text}" at (${x}, ${y}), size: ${fontSize}, fill: ${fill}`);
-        
-        if (!text || text.trim() === '') {
-          console.log('Skipping empty text object');
-          break;
-        }
-        
-        // Use a very simple SVG text approach that works with resvg-wasm
-        // Position text with proper baseline offset
-        const textY = y + fontSize;
-        
-        // Create simple text element without complex attributes
-        svg += `<text x="${x}" y="${textY}" font-family="Arial, sans-serif" font-size="${fontSize}" fill="${fill}" stroke="none" text-anchor="start">${escapeXml(text)}</text>`;
-        
-        console.log(`Generated text SVG: <text x="${x}" y="${textY}" font-family="Arial, sans-serif" font-size="${fontSize}" fill="${fill}">${escapeXml(text)}</text>`);
-        console.log('=== TEXT RENDERING END ===');
-        
-        break;
-        
       case 'rect':
       case 'rectangle':
         const rectX = obj.left || 0;
