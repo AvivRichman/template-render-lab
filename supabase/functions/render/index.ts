@@ -162,35 +162,43 @@ function renderObjectToSVG(obj: any): string {
         
         console.log(`Text object: "${text}" at (${x}, ${y}), size: ${scaledFontSize}, fill: ${fill}`);
         
-        // Use dominant-baseline to control text positioning properly
-        svg += `<text x="${x}" y="${y}" font-family="${fontFamily}" font-size="${scaledFontSize}" fill="${fill}" dominant-baseline="hanging"`;
+        // Calculate proper text positioning - Fabric.js uses top-left, SVG text uses baseline
+        const textY = y + scaledFontSize; // Adjust for baseline positioning
+        
+        // Ensure text has a visible fill color
+        let textFill = fill;
+        if (!textFill || textFill === 'transparent' || textFill === 'none') {
+          textFill = '#000000'; // Default to black if no fill
+        }
+        
+        // Create text element with proper positioning
+        svg += `<text x="${x}" y="${textY}" font-family="${fontFamily}" font-size="${scaledFontSize}" fill="${textFill}"`;
         
         // Add font weight and style if present
-        if (obj.fontWeight) {
+        if (obj.fontWeight && obj.fontWeight !== 'normal') {
           svg += ` font-weight="${obj.fontWeight}"`;
         }
-        if (obj.fontStyle) {
+        if (obj.fontStyle && obj.fontStyle !== 'normal') {
           svg += ` font-style="${obj.fontStyle}"`;
         }
-        if (obj.textAlign) {
+        if (obj.textAlign && obj.textAlign !== 'left') {
           svg += ` text-anchor="${obj.textAlign === 'center' ? 'middle' : obj.textAlign === 'right' ? 'end' : 'start'}"`;
         }
         
+        // Add stroke for better visibility
+        svg += ` stroke="none"`;
+        
         // Add rotation if present
         if (obj.angle) {
-          const centerX = x + (obj.width || 0) * scaleX / 2;
-          const centerY = y + (obj.height || scaledFontSize) * scaleY / 2;
+          const centerX = x + (obj.width || text.length * scaledFontSize * 0.6) * scaleX / 2;
+          const centerY = y + scaledFontSize / 2;
           svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
         }
         
-        // Ensure text is visible by adding stroke if fill is very light
         const textContent = escapeXml(text);
         svg += `>${textContent}</text>`;
         
-        // Add a debug rectangle around text for troubleshooting (will remove later)
-        const textWidth = (obj.width || textContent.length * scaledFontSize * 0.6) * scaleX;
-        const textHeight = scaledFontSize * scaleY;
-        svg += `<rect x="${x}" y="${y}" width="${textWidth}" height="${textHeight}" fill="none" stroke="red" stroke-width="1" opacity="0.3"/>`;
+        console.log(`Generated SVG text element: x=${x}, y=${textY}, fontSize=${scaledFontSize}, content="${textContent}"`);
         
         break;
         
