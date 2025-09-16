@@ -53,18 +53,27 @@ serve(async (req) => {
       throw new Error(`Failed to upload image: ${uploadError.message}`);
     }
     
-    // Get public URL
-    const { data: urlData } = supabase.storage
-      .from('api-renders')
-      .getPublicUrl(imagePath);
+    console.log('SVG uploaded, now converting to PNG...');
     
-    const mockImageUrl = urlData.publicUrl;
+    // Call svg-to-png-renderer function to convert SVG to PNG
+    const pngResponse = await supabase.functions.invoke('svg-to-png-renderer', {
+      body: {
+        bucket: 'api-renders',
+        key: imagePath
+      }
+    });
 
-    console.log('Generated image URL:', mockImageUrl);
+    if (pngResponse.error) {
+      console.error('PNG conversion error:', pngResponse.error);
+      throw new Error(`Failed to convert SVG to PNG: ${pngResponse.error.message}`);
+    }
+
+    const pngImageUrl = pngResponse.data.png_url;
+    console.log('Generated PNG image URL:', pngImageUrl);
 
     return new Response(JSON.stringify({
       success: true,
-      image_url: mockImageUrl,
+      image_url: pngImageUrl,
       template_id,
       generation_time: '1.2s',
       message: 'Image rendered successfully'
