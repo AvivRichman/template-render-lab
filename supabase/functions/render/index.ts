@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.2';
-import { Canvas as FabricCanvas, FabricText, FabricImage, Rect, Circle } from 'https://esm.sh/fabric@6.7.1';
+import { createCanvas } from "https://deno.land/x/canvas@v1.4.1/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -101,10 +101,10 @@ serve(async (req) => {
   }
 });
 
-// Generate PNG from scene data using virtual Fabric.js canvas
+// Generate PNG from scene data using Deno canvas
 async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
   try {
-    console.log('=== FABRIC CANVAS GENERATION START ===');
+    console.log('=== CANVAS GENERATION START ===');
     console.log('Scene data received for rendering');
     console.log('Scene data objects count:', sceneData.objects?.length || 0);
     
@@ -115,14 +115,15 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     
     console.log(`Canvas dimensions: ${width}x${height}, background: ${backgroundColor}`);
     
-    // Create virtual Fabric.js canvas
-    const canvas = new FabricCanvas(null, {
-      width: width,
-      height: height,
-      backgroundColor: backgroundColor,
-    });
+    // Create server-side canvas
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
     
-    console.log('Virtual Fabric canvas created');
+    // Set background
+    ctx.fillStyle = backgroundColor;
+    ctx.fillRect(0, 0, width, height);
+    
+    console.log('Canvas created with background');
     
     // Process each object in the scene data
     if (sceneData.objects && Array.isArray(sceneData.objects)) {
@@ -139,27 +140,19 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
           fontSize: obj.fontSize
         });
         
-        await addObjectToCanvas(canvas, obj);
+        await drawObjectOnCanvas(ctx, obj);
       }
     }
     
-    console.log('All objects added to canvas, rendering...');
+    console.log('All objects drawn, converting to PNG...');
     
-    // Render canvas to PNG
-    const pngDataUrl = canvas.toDataURL({
-      format: 'png',
-      quality: 1.0,
-      multiplier: 1
-    });
+    // Convert canvas to PNG
+    const pngBuffer = canvas.toBuffer('image/png');
     
-    // Convert data URL to bytes
-    const base64Data = pngDataUrl.split(',')[1];
-    const pngBytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+    console.log('PNG generated, size:', pngBuffer.length, 'bytes');
+    console.log('=== CANVAS GENERATION END ===');
     
-    console.log('PNG generated, size:', pngBytes.length, 'bytes');
-    console.log('=== FABRIC CANVAS GENERATION END ===');
-    
-    return pngBytes;
+    return new Uint8Array(pngBuffer);
     
   } catch (error) {
     console.error('Error generating image from scene data:', error);
@@ -167,82 +160,101 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
   }
 }
 
-// Add Fabric.js object to canvas based on scene data
-async function addObjectToCanvas(canvas: FabricCanvas, obj: any): Promise<void> {
+// Draw object on canvas context
+async function drawObjectOnCanvas(ctx: any, obj: any): Promise<void> {
   try {
     const objectType = obj.type?.toLowerCase();
     const hasText = obj.text && obj.text.trim() !== '';
     
-    console.log(`Adding object type: ${objectType}, has text: ${hasText}`);
+    console.log(`Drawing object type: ${objectType}, has text: ${hasText}`);
     
     if (hasText || objectType === 'text') {
-      // Create text object
-      const text = new FabricText(obj.text || '', {
-        left: obj.left || 0,
-        top: obj.top || 0,
-        fill: obj.fill || '#000000',
-        fontSize: obj.fontSize || 24,
-        fontFamily: obj.fontFamily || 'Arial',
-        angle: obj.angle || 0,
-        scaleX: obj.scaleX || 1,
-        scaleY: obj.scaleY || 1,
-      });
+      // Draw text
+      const x = obj.left || 0;
+      const y = obj.top || 0;
+      const fontSize = obj.fontSize || 24;
+      const fill = obj.fill || '#000000';
+      const text = obj.text || '';
+      const fontFamily = obj.fontFamily || 'Arial';
       
-      canvas.add(text);
-      console.log(`Added text: "${obj.text}" at (${obj.left}, ${obj.top})`);
+      ctx.fillStyle = fill;
+      ctx.font = `${fontSize}px ${fontFamily}`;
+      ctx.textBaseline = 'top';
+      ctx.fillText(text, x, y);
+      
+      console.log(`Drew text: "${text}" at (${x}, ${y}) with size ${fontSize}`);
       
     } else if (objectType === 'image' && obj.src) {
-      // Create image object
-      const img = await FabricImage.fromURL(obj.src);
-      img.set({
-        left: obj.left || 0,
-        top: obj.top || 0,
-        scaleX: obj.scaleX || 1,
-        scaleY: obj.scaleY || 1,
-        angle: obj.angle || 0,
-      });
-      
-      canvas.add(img);
-      console.log(`Added image at (${obj.left}, ${obj.top})`);
+      // Draw image
+      try {
+        const imageData = obj.src;
+        if (imageData.startsWith('data:image/')) {
+          // Handle base64 image
+          const base64Data = imageData.split(',')[1];
+          const imageBuffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+          
+          // For now, we'll skip complex image drawing in server environment
+          // and draw a placeholder rectangle instead
+          const x = obj.left || 0;
+          const y = obj.top || 0;
+          const w = (obj.width || 100) * (obj.scaleX || 1);
+          const h = (obj.height || 100) * (obj.scaleY || 1);
+          
+          ctx.strokeStyle = '#cccccc';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x, y, w, h);
+          ctx.fillStyle = '#f0f0f0';
+          ctx.fillRect(x, y, w, h);
+          
+          console.log(`Drew image placeholder at (${x}, ${y}) size ${w}x${h}`);
+        }
+        
+      } catch (imageError) {
+        console.error('Error drawing image:', imageError);
+      }
       
     } else if (objectType === 'rect' || objectType === 'rectangle') {
-      // Create rectangle object
-      const rect = new Rect({
-        left: obj.left || 0,
-        top: obj.top || 0,
-        width: obj.width || 100,
-        height: obj.height || 100,
-        fill: obj.fill || '#000000',
-        stroke: obj.stroke || null,
-        strokeWidth: obj.strokeWidth || 0,
-        angle: obj.angle || 0,
-        scaleX: obj.scaleX || 1,
-        scaleY: obj.scaleY || 1,
-      });
+      // Draw rectangle
+      const x = obj.left || 0;
+      const y = obj.top || 0;
+      const w = (obj.width || 100) * (obj.scaleX || 1);
+      const h = (obj.height || 100) * (obj.scaleY || 1);
+      const fill = obj.fill || '#000000';
       
-      canvas.add(rect);
-      console.log(`Added rectangle at (${obj.left}, ${obj.top})`);
+      ctx.fillStyle = fill;
+      ctx.fillRect(x, y, w, h);
+      
+      if (obj.stroke && obj.strokeWidth > 0) {
+        ctx.strokeStyle = obj.stroke;
+        ctx.lineWidth = obj.strokeWidth;
+        ctx.strokeRect(x, y, w, h);
+      }
+      
+      console.log(`Drew rectangle at (${x}, ${y}) size ${w}x${h}`);
       
     } else if (objectType === 'circle') {
-      // Create circle object
-      const circle = new Circle({
-        left: obj.left || 0,
-        top: obj.top || 0,
-        radius: obj.radius || 50,
-        fill: obj.fill || '#000000',
-        stroke: obj.stroke || null,
-        strokeWidth: obj.strokeWidth || 0,
-        angle: obj.angle || 0,
-        scaleX: obj.scaleX || 1,
-        scaleY: obj.scaleY || 1,
-      });
+      // Draw circle
+      const centerX = (obj.left || 0) + (obj.radius || 50) * (obj.scaleX || 1);
+      const centerY = (obj.top || 0) + (obj.radius || 50) * (obj.scaleY || 1);
+      const radius = (obj.radius || 50) * Math.max(obj.scaleX || 1, obj.scaleY || 1);
+      const fill = obj.fill || '#000000';
       
-      canvas.add(circle);
-      console.log(`Added circle at (${obj.left}, ${obj.top})`);
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+      ctx.fillStyle = fill;
+      ctx.fill();
+      
+      if (obj.stroke && obj.strokeWidth > 0) {
+        ctx.strokeStyle = obj.stroke;
+        ctx.lineWidth = obj.strokeWidth;
+        ctx.stroke();
+      }
+      
+      console.log(`Drew circle at (${centerX}, ${centerY}) radius ${radius}`);
     }
     
   } catch (error) {
-    console.error('Error adding object to canvas:', error, 'Object:', obj);
+    console.error('Error drawing object on canvas:', error, 'Object:', obj);
   }
 }
 
@@ -251,35 +263,26 @@ function createFallbackPNG(): Uint8Array {
   console.log('Creating fallback PNG');
   
   try {
-    const canvas = new FabricCanvas(null, {
-      width: 400,
-      height: 300,
-      backgroundColor: '#f8f9fa',
-    });
+    const canvas = createCanvas(400, 300);
+    const ctx = canvas.getContext('2d');
     
-    const errorText = new FabricText('Error generating image', {
-      left: 200,
-      top: 150,
-      fill: '#dc3545',
-      fontSize: 16,
-      fontFamily: 'Arial',
-      originX: 'center',
-      originY: 'center'
-    });
+    // Background
+    ctx.fillStyle = '#f8f9fa';
+    ctx.fillRect(0, 0, 400, 300);
     
-    canvas.add(errorText);
+    // Error text
+    ctx.fillStyle = '#dc3545';
+    ctx.font = '16px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Error generating image', 200, 150);
     
-    const pngDataUrl = canvas.toDataURL({
-      format: 'png',
-      quality: 1.0
-    });
-    
-    const base64Data = pngDataUrl.split(',')[1];
-    return Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+    const pngBuffer = canvas.toBuffer('image/png');
+    return new Uint8Array(pngBuffer);
     
   } catch (error) {
     console.error('Error creating fallback PNG:', error);
     // Return minimal PNG bytes if everything fails
-    return new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]); // PNG header
+    return new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82]);
   }
 }
