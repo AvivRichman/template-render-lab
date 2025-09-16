@@ -111,7 +111,7 @@ serve(async (req) => {
 // Generate SVG from scene data and return it as bytes for upload - resvg-wasm optimized
 async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
   try {
-    console.log('=== SVG GENERATION START (resvg-wasm basic approach) ===');
+    console.log('=== SVG GENERATION START (resvg-wasm compatible) ===');
     console.log('Scene data received for rendering');
     console.log('Scene data objects count:', sceneData.objects?.length || 0);
     
@@ -122,38 +122,69 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     
     console.log(`Canvas dimensions: ${width}x${height}, background: ${backgroundColor}`);
     
-    // Create minimal SVG without font dependencies for resvg-wasm compatibility
+    // Create SVG with simplified structure for resvg-wasm compatibility
     let svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">`;
+<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <style>
+    .text-element { 
+      font-family: Arial, Helvetica, sans-serif; 
+      font-weight: normal;
+      text-anchor: start;
+      dominant-baseline: hanging;
+    }
+  </style>
+</defs>`;
     svg += `<rect width="100%" height="100%" fill="${backgroundColor}"/>`;
     
-    // Process each object in the scene
+    // Process each object in the scene - render images first, then text on top
     if (sceneData.objects && Array.isArray(sceneData.objects)) {
       console.log('Processing objects for resvg-wasm...');
+      
+      // First pass: render non-text objects (images, shapes, etc.)
       for (let i = 0; i < sceneData.objects.length; i++) {
         const obj = sceneData.objects[i];
-        console.log(`Processing object ${i}:`, {
-          type: obj.type,
-          left: obj.left,
-          top: obj.top,
-          text: obj.text || 'N/A',
-          fill: obj.fill,
-          fontSize: obj.fontSize
-        });
-        const objectSVG = renderObjectToSVG(obj);
-        if (objectSVG) {
-          svg += objectSVG;
-          console.log(`Added basic SVG for object ${i}:`, objectSVG.substring(0, 100) + '...');
-        } else {
-          console.log(`No SVG generated for object ${i}`);
+        if (obj.type?.toLowerCase() !== 'text' && !obj.text) {
+          console.log(`Processing non-text object ${i}:`, {
+            type: obj.type,
+            left: obj.left,
+            top: obj.top
+          });
+          const objectSVG = renderObjectToSVG(obj, false);
+          if (objectSVG) {
+            svg += objectSVG;
+            console.log(`Added non-text SVG for object ${i}:`, objectSVG.substring(0, 100) + '...');
+          }
+        }
+      }
+      
+      // Second pass: render text objects on top
+      for (let i = 0; i < sceneData.objects.length; i++) {
+        const obj = sceneData.objects[i];
+        if (obj.type?.toLowerCase() === 'text' || obj.text) {
+          console.log(`Processing text object ${i}:`, {
+            type: obj.type,
+            left: obj.left,
+            top: obj.top,
+            text: obj.text,
+            fill: obj.fill,
+            fontSize: obj.fontSize
+          });
+          const objectSVG = renderObjectToSVG(obj, true);
+          if (objectSVG) {
+            svg += objectSVG;
+            console.log(`Added text SVG for object ${i}:`, objectSVG.substring(0, 100) + '...');
+          } else {
+            console.log(`No SVG generated for text object ${i}`);
+          }
         }
       }
     }
     
     svg += '</svg>';
     
-    console.log('Generated basic SVG length:', svg.length);
-    console.log('=== COMPLETE BASIC SVG OUTPUT ===');
+    console.log('Generated SVG length:', svg.length);
+    console.log('=== COMPLETE SVG OUTPUT ===');
     console.log(svg);
     console.log('=== SVG GENERATION END ===');
     
@@ -161,45 +192,46 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     return new TextEncoder().encode(svg);
     
   } catch (error) {
-    console.error('Error generating basic image from scene data:', error);
+    console.error('Error generating image from scene data:', error);
     return createFallbackSVG();
   }
 }
 
 // Render a Fabric.js object to SVG - resvg-wasm compatible version
-function renderObjectToSVG(obj: any): string {
+function renderObjectToSVG(obj: any, isTextPass: boolean = false): string {
   let svg = '';
   
   try {
     const objectType = obj.type?.toLowerCase();
-    console.log(`Rendering object type: ${objectType}, has text: ${!!obj.text}`);
+    const hasText = obj.text && obj.text.trim() !== '';
     
-    // Handle any object with text content - use minimal approach for resvg-wasm
-    if (obj.text && obj.text.trim() !== '') {
-      console.log('=== TEXT RENDERING START (basic approach) ===');
+    console.log(`Rendering object type: ${objectType}, has text: ${hasText}, isTextPass: ${isTextPass}`);
+    
+    // Handle text objects only during text pass
+    if (hasText && isTextPass) {
+      console.log('=== TEXT RENDERING START (resvg-compatible) ===');
       console.log('Text content:', obj.text);
       
       const x = obj.left || 0;
       const y = obj.top || 0;
-      const fontSize = obj.fontSize || 24;
+      const fontSize = Math.max(obj.fontSize || 24, 12); // Ensure minimum readable size
       const fill = obj.fill || '#000000';
       const text = obj.text || '';
       
       console.log(`Text rendering params: "${text}" at (${x}, ${y}), size: ${fontSize}, fill: ${fill}`);
       
-      // Calculate proper text positioning - use simple approach
-      const textY = y + fontSize; // Simple baseline calculation
+      // Use dominant-baseline="hanging" for consistent positioning
+      svg += `<text x="${x}" y="${y}" class="text-element" font-size="${fontSize}" fill="${fill}">${escapeXml(text)}</text>`;
       
-      // Create minimal text element without font specifications for resvg-wasm
-      svg += `<text x="${x}" y="${textY}" font-size="${fontSize}" fill="${fill}">${escapeXml(text)}</text>`;
-      
-      console.log(`Generated basic text SVG: <text x="${x}" y="${textY}" font-size="${fontSize}" fill="${fill}">${escapeXml(text)}</text>`);
+      console.log(`Generated text SVG: <text x="${x}" y="${y}" class="text-element" font-size="${fontSize}" fill="${fill}">${escapeXml(text)}</text>`);
       console.log('=== TEXT RENDERING END ===');
       
       return svg;
     }
     
-    switch (objectType) {
+    // Handle non-text objects only during non-text pass
+    if (!hasText && !isTextPass) {
+      switch (objectType) {
       case 'rect':
       case 'rectangle':
         const rectX = obj.left || 0;
@@ -306,6 +338,7 @@ function renderObjectToSVG(obj: any): string {
           
           svg += `<rect x="${genX}" y="${genY}" width="${genWidth}" height="${genHeight}" fill="${genFill}"/>`;
         }
+      }
     }
   } catch (error) {
     console.error('Error rendering object to SVG:', error, 'Object:', obj);
