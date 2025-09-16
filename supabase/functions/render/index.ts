@@ -164,44 +164,26 @@ function renderObjectToSVG(obj: any): string {
         console.log('Text object details:', obj);
         
         const x = obj.left || 0;
-        const y = (obj.top || 0);
-        const fontSize = obj.fontSize || 16;
+        const y = obj.top || 0;
+        const fontSize = obj.fontSize || 24;
         const fill = obj.fill || '#000000';
-        const fontFamily = obj.fontFamily || 'Arial';
         const text = obj.text || '';
         
-        // Handle text scaling if present
-        const scaleX = obj.scaleX || 1;
-        const scaleY = obj.scaleY || 1;
-        const scaledFontSize = fontSize * Math.max(scaleX, scaleY);
-        
-        console.log(`Text rendering params: "${text}" at (${x}, ${y}), size: ${scaledFontSize}, fill: ${fill}`);
+        console.log(`Text rendering params: "${text}" at (${x}, ${y}), size: ${fontSize}, fill: ${fill}`);
         
         if (!text || text.trim() === '') {
           console.log('Skipping empty text object');
           break;
         }
         
-        // Create text with absolute positioning and high contrast
-        svg += `<text x="${x}" y="${y + scaledFontSize}" font-family="Arial, sans-serif" font-size="${scaledFontSize}" fill="${fill}" stroke="none"`;
+        // Use a very simple SVG text approach that works with resvg-wasm
+        // Position text with proper baseline offset
+        const textY = y + fontSize;
         
-        // Add font weight and style if present
-        if (obj.fontWeight && obj.fontWeight !== 'normal') {
-          svg += ` font-weight="${obj.fontWeight}"`;
-        }
-        if (obj.fontStyle && obj.fontStyle !== 'normal') {
-          svg += ` font-style="${obj.fontStyle}"`;
-        }
-        if (obj.textAlign) {
-          const anchor = obj.textAlign === 'center' ? 'middle' : obj.textAlign === 'right' ? 'end' : 'start';
-          svg += ` text-anchor="${anchor}"`;
-        }
+        // Create simple text element without complex attributes
+        svg += `<text x="${x}" y="${textY}" font-family="Arial, sans-serif" font-size="${fontSize}" fill="${fill}" stroke="none" text-anchor="start">${escapeXml(text)}</text>`;
         
-        // Close the text element with escaped content
-        const textContent = escapeXml(text);
-        svg += `>${textContent}</text>`;
-        
-        console.log(`Generated text SVG: <text x="${x}" y="${y + scaledFontSize}" font-family="Arial, sans-serif" font-size="${scaledFontSize}" fill="${fill}">${textContent}</text>`);
+        console.log(`Generated text SVG: <text x="${x}" y="${textY}" font-family="Arial, sans-serif" font-size="${fontSize}" fill="${fill}">${escapeXml(text)}</text>`);
         console.log('=== TEXT RENDERING END ===');
         
         break;
