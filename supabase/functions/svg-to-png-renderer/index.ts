@@ -13,23 +13,31 @@ let wasmInitialized = false;
 
 async function ensureWasmInit() {
   if (wasmInitialized) return;
-  // Fetch the WASM binary
-  const wasmUrl = "https://cdn.jsdelivr.net/npm/@resvg/resvg-wasm@2.3.0/index_bg.wasm";
-  const resp = await fetch(wasmUrl);
-  if (!resp.ok) throw new Error(`Failed to fetch WASM binary: ${resp.status}`);
-  const wasmArrayBuffer = await resp.arrayBuffer();
-  // Dynamically import the module AFTER fetching the wasm binary so we control initialization
-  // This avoids the module trying to resolve a relative 'index_bg.wasm' URL at import time
-  resvgModule = await import("npm:@resvg/resvg-wasm@2.3.0");
-  // Some versions export an `init` named export, some default-export a function — handle both
-  if (typeof resvgModule.init === "function") {
-    await resvgModule.init(wasmArrayBuffer);
-  } else if (typeof resvgModule.default === "function") {
-    await resvgModule.default(wasmArrayBuffer);
-  } else {
-    throw new Error("resvg-wasm module does not expose an init function");
+  try {
+    // Import the resvg-wasm module
+    resvgModule = await import("npm:@resvg/resvg-wasm@2.3.0");
+    console.log("Module imported, available exports:", Object.keys(resvgModule));
+    
+    // Try different initialization methods
+    if (typeof resvgModule.initWasm === "function") {
+      console.log("Using initWasm method");
+      await resvgModule.initWasm();
+    } else if (typeof resvgModule.default === "function") {
+      console.log("Using default function");
+      await resvgModule.default();
+    } else if (typeof resvgModule.init === "function") {
+      console.log("Using init function");
+      await resvgModule.init();
+    } else {
+      // Fallback: the module might be self-initializing
+      console.log("No explicit init function found, assuming auto-initialization");
+    }
+    wasmInitialized = true;
+    console.log("WASM initialization completed successfully");
+  } catch (error) {
+    console.error("WASM initialization failed:", error);
+    throw new Error(`Failed to initialize resvg-wasm: ${error.message}`);
   }
-  wasmInitialized = true;
 }
 
 async function fetchSvg(bucket, path) {
@@ -50,17 +58,42 @@ async function uploadPng(bucket, path, pngBytes, contentType = "image/png") {
 
 async function svgToPng(svg, width, height) {
   await ensureWasmInit();
-  const Resvg = resvgModule.Resvg;
-  if (!Resvg) throw new Error("Resvg class not available on module");
-  const resvg = new Resvg(svg, {
-    fitTo: width || height ? {
-      mode: "width",
-      value: width ?? 0
-    } : undefined
-  });
-  const pngData = resvg.render();
-  const png = pngData.asPng();
-  return png;
+  
+  try {
+    console.log("Available in resvgModule:", Object.keys(resvgModule));
+    
+    // Try different ways to access the Resvg class
+    let Resvg = resvgModule.Resvg || resvgModule.default?.Resvg || resvgModule.default;
+    
+    if (!Resvg) {
+      console.error("Available properties:", Object.keys(resvgModule));
+      throw new Error("Resvg class not found in module");
+    }
+    
+    console.log("Creating Resvg instance with SVG length:", svg.length);
+    
+    const options = {};
+    if (width || height) {
+      options.fitTo = {
+        mode: "width",
+        value: width || 800
+      };
+    }
+    
+    const resvg = new Resvg(svg, options);
+    console.log("Resvg instance created, rendering...");
+    
+    const pngData = resvg.render();
+    console.log("Rendering complete, getting PNG bytes...");
+    
+    const png = pngData.asPng();
+    console.log("PNG conversion successful, size:", png.length, "bytes");
+    
+    return png;
+  } catch (error) {
+    console.error("Error in svgToPng:", error);
+    throw new Error(`SVG to PNG conversion failed: ${error.message}`);
+  }
 }
 
 Deno.serve(async (req) => {
