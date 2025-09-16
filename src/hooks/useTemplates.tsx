@@ -76,50 +76,6 @@ export const useTemplates = () => {
     }
   };
 
-  const updateTemplate = async (
-    id: string,
-    sceneData: any,
-    editedImageUrl?: string
-  ) => {
-    if (!user) {
-      toast.error('You must be logged in to update templates');
-      return false;
-    }
-
-    try {
-      const updateData: any = {
-        scene_data: sceneData,
-        updated_at: new Date().toISOString()
-      };
-
-      if (editedImageUrl) {
-        updateData.edited_image_url = editedImageUrl;
-      }
-
-      const { error } = await supabase
-        .from('templates')
-        .update(updateData)
-        .eq('id', id)
-        .eq('user_id', user.id);
-
-      if (error) throw error;
-
-      // Update local state
-      setTemplates(prev => prev.map(t => 
-        t.id === id 
-          ? { ...t, scene_data: sceneData, updated_at: new Date().toISOString(), ...(editedImageUrl && { edited_image_url: editedImageUrl }) }
-          : t
-      ));
-
-      toast.success('Template updated successfully');
-      return true;
-    } catch (error) {
-      console.error('Error updating template:', error);
-      toast.error('Failed to update template');
-      return false;
-    }
-  };
-
   const deleteTemplate = async (id: string) => {
     try {
       const { error } = await supabase
@@ -145,7 +101,6 @@ export const useTemplates = () => {
     templates,
     isLoading,
     saveTemplate,
-    updateTemplate,
     deleteTemplate,
     refreshTemplates: fetchTemplates
   };

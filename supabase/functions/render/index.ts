@@ -40,7 +40,7 @@ serve(async (req) => {
     // Create SVG from scene data
     const imageBuffer = await generateImageFromSceneData(scene_data);
     
-    // Upload to storage as SVG
+    // Upload to storage as SVG (browsers can display SVG directly)
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('api-renders')
       .upload(imagePath, imageBuffer, {
@@ -125,7 +125,8 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     console.log('Generated SVG length:', svg.length);
     console.log('SVG preview:', svg.substring(0, 500) + '...');
     
-    // Return the SVG as bytes
+    // Instead of converting to PNG (which is complex in Deno), 
+    // return the SVG as bytes - browsers can display SVG files directly
     return new TextEncoder().encode(svg);
     
   } catch (error) {
@@ -146,7 +147,7 @@ function renderObjectToSVG(obj: any): string {
       case 'textbox':
       case 'text':
         const x = obj.left || 0;
-        const y = obj.top || 0;
+        const y = (obj.top || 0) + (obj.fontSize || 16);
         const fontSize = obj.fontSize || 16;
         const fill = obj.fill || '#000000';
         const fontFamily = obj.fontFamily || 'Arial';
@@ -157,46 +158,29 @@ function renderObjectToSVG(obj: any): string {
         const scaleY = obj.scaleY || 1;
         const scaledFontSize = fontSize * Math.max(scaleX, scaleY);
         
-        console.log(`Text object: "${text}" at (${x}, ${y}), size: ${scaledFontSize}, fill: ${fill}`);
+        console.log(`Text object: "${text}" at (${x}, ${y}), size: ${scaledFontSize}`);
         
-        // Calculate proper text positioning - Fabric.js uses top-left, SVG text uses baseline
-        const textY = y + scaledFontSize; // Adjust for baseline positioning
-        
-        // Ensure text has a visible fill color
-        let textFill = fill;
-        if (!textFill || textFill === 'transparent' || textFill === 'none') {
-          textFill = '#000000'; // Default to black if no fill
-        }
-        
-        // Create text element with proper positioning
-        svg += `<text x="${x}" y="${textY}" font-family="${fontFamily}" font-size="${scaledFontSize}" fill="${textFill}"`;
+        svg += `<text x="${x}" y="${y}" font-family="${fontFamily}" font-size="${scaledFontSize}" fill="${fill}"`;
         
         // Add font weight and style if present
-        if (obj.fontWeight && obj.fontWeight !== 'normal') {
+        if (obj.fontWeight) {
           svg += ` font-weight="${obj.fontWeight}"`;
         }
-        if (obj.fontStyle && obj.fontStyle !== 'normal') {
+        if (obj.fontStyle) {
           svg += ` font-style="${obj.fontStyle}"`;
         }
-        if (obj.textAlign && obj.textAlign !== 'left') {
+        if (obj.textAlign) {
           svg += ` text-anchor="${obj.textAlign === 'center' ? 'middle' : obj.textAlign === 'right' ? 'end' : 'start'}"`;
         }
         
-        // Add stroke for better visibility
-        svg += ` stroke="none"`;
-        
         // Add rotation if present
         if (obj.angle) {
-          const centerX = x + (obj.width || text.length * scaledFontSize * 0.6) * scaleX / 2;
-          const centerY = y + scaledFontSize / 2;
+          const centerX = x + (obj.width || 0) * scaleX / 2;
+          const centerY = y - (obj.height || 0) * scaleY / 2;
           svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
         }
         
-        const textContent = escapeXml(text);
-        svg += `>${textContent}</text>`;
-        
-        console.log(`Generated SVG text element: x=${x}, y=${textY}, fontSize=${scaledFontSize}, content="${textContent}"`);
-        
+        svg += `>${escapeXml(text)}</text>`;
         break;
         
       case 'rect':
@@ -311,20 +295,6 @@ function renderObjectToSVG(obj: any): string {
   }
   
   return svg;
-}
-
-// Helper function to escape XML special characters
-function escapeXml(unsafe: string): string {
-  return unsafe.replace(/[<>&'"]/g, function (c) {
-    switch (c) {
-      case '<': return '&lt;';
-      case '>': return '&gt;';
-      case '&': return '&amp;';
-      case '\'': return '&apos;';
-      case '"': return '&quot;';
-      default: return c;
-    }
-  });
 }
 
 // Helper function to escape XML special characters
