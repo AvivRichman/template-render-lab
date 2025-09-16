@@ -147,7 +147,9 @@ function renderObjectToSVG(obj: any): string {
       case 'textbox':
       case 'text':
         const x = obj.left || 0;
-        const y = (obj.top || 0) + (obj.fontSize || 16);
+        // In Fabric.js, 'top' is the top of the text box, but in SVG 'y' is the baseline
+        // We need to adjust for this difference
+        const y = (obj.top || 0);
         const fontSize = obj.fontSize || 16;
         const fill = obj.fill || '#000000';
         const fontFamily = obj.fontFamily || 'Arial';
@@ -158,9 +160,10 @@ function renderObjectToSVG(obj: any): string {
         const scaleY = obj.scaleY || 1;
         const scaledFontSize = fontSize * Math.max(scaleX, scaleY);
         
-        console.log(`Text object: "${text}" at (${x}, ${y}), size: ${scaledFontSize}`);
+        console.log(`Text object: "${text}" at (${x}, ${y}), size: ${scaledFontSize}, fill: ${fill}`);
         
-        svg += `<text x="${x}" y="${y}" font-family="${fontFamily}" font-size="${scaledFontSize}" fill="${fill}"`;
+        // Use dominant-baseline to control text positioning properly
+        svg += `<text x="${x}" y="${y}" font-family="${fontFamily}" font-size="${scaledFontSize}" fill="${fill}" dominant-baseline="hanging"`;
         
         // Add font weight and style if present
         if (obj.fontWeight) {
@@ -176,11 +179,19 @@ function renderObjectToSVG(obj: any): string {
         // Add rotation if present
         if (obj.angle) {
           const centerX = x + (obj.width || 0) * scaleX / 2;
-          const centerY = y - (obj.height || 0) * scaleY / 2;
+          const centerY = y + (obj.height || scaledFontSize) * scaleY / 2;
           svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
         }
         
-        svg += `>${escapeXml(text)}</text>`;
+        // Ensure text is visible by adding stroke if fill is very light
+        const textContent = escapeXml(text);
+        svg += `>${textContent}</text>`;
+        
+        // Add a debug rectangle around text for troubleshooting (will remove later)
+        const textWidth = (obj.width || textContent.length * scaledFontSize * 0.6) * scaleX;
+        const textHeight = scaledFontSize * scaleY;
+        svg += `<rect x="${x}" y="${y}" width="${textWidth}" height="${textHeight}" fill="none" stroke="red" stroke-width="1" opacity="0.3"/>`;
+        
         break;
         
       case 'rect':
