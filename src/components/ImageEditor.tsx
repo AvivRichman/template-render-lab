@@ -206,13 +206,13 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
     if (!fabricCanvas) return;
     
     const dataURL = fabricCanvas.toDataURL({
-      format: 'png',
-      quality: 1,
+      format: 'jpeg',
+      quality: 0.9,
       multiplier: 1,
     });
-    
+
     const link = document.createElement('a');
-    link.download = 'edited-image.png';
+    link.download = 'edited-image.jpg';
     link.href = dataURL;
     link.click();
     
@@ -246,6 +246,7 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
         .upload(filePath, blob, {
           cacheControl: '3600',
           upsert: false,
+          contentType: blob.type || undefined,
         });
 
       if (error) {
@@ -278,28 +279,30 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
       
       // Generate thumbnail (smaller version)
       const thumbnailDataURL = fabricCanvas.toDataURL({
-        format: 'png',
+        format: 'jpeg',
         quality: 0.8,
         multiplier: 0.3
       });
 
       // Generate full edited image
       const editedImageDataURL = fabricCanvas.toDataURL({
-        format: 'png',
-        quality: 1,
+        format: 'jpeg',
+        quality: 0.9,
         multiplier: 1
       });
 
       // Prepare upload promises
       const uploadPromises = [
-        uploadImageToStorage(thumbnailDataURL, `${templateName}-thumbnail.png`),
-        uploadImageToStorage(editedImageDataURL, `${templateName}-edited.png`)
+        uploadImageToStorage(thumbnailDataURL, `${templateName}-thumbnail.jpg`),
+        uploadImageToStorage(editedImageDataURL, `${templateName}-edited.jpg`)
       ];
 
       // If original image is a data URL (from file upload), upload it too
       let originalImageStorageUrl = originalImageUrl;
       if (originalImageUrl && originalImageUrl.startsWith('data:')) {
-        uploadPromises.push(uploadImageToStorage(originalImageUrl, `${templateName}-original.png`));
+        const match = originalImageUrl.match(/^data:image\/(\w+)/i);
+        const originalExtension = match ? match[1].toLowerCase() : 'png';
+        uploadPromises.push(uploadImageToStorage(originalImageUrl, `${templateName}-original.${originalExtension}`));
       }
 
       // Upload all images

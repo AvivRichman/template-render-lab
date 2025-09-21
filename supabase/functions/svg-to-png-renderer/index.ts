@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.28.0";
+import { Image } from "https://deno.land/x/imagescript@1.3.0/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -38,8 +39,8 @@ async function fetchSvg(bucket, path) {
   return new TextDecoder().decode(arrayBuffer);
 }
 
-async function uploadPng(bucket, path, pngBytes, contentType = "image/png") {
-  const { data, error } = await supabase.storage.from(bucket).upload(path, pngBytes, {
+async function uploadImage(bucket, path, bytes, contentType) {
+  const { data, error } = await supabase.storage.from(bucket).upload(path, bytes, {
     contentType,
     upsert: true
   });
@@ -70,7 +71,7 @@ async function svgToPng(svg, width, height) {
     
     const pngBuffer = pngData.asPng();
     console.log("PNG conversion successful, size:", pngBuffer.length, "bytes");
-    
+
     return pngBuffer;
   } catch (error) {
     console.error("Error in svgToPng:", error);
@@ -109,8 +110,30 @@ Deno.serve(async (req) => {
     const svg = await fetchSvg(bucket, key);
     const pngBytes = await svgToPng(svg, width);
     const pngPath = key.replace(/\.svg$/i, "") + ".png";
-    await uploadPng(bucket, pngPath, pngBytes);
-    
+    await uploadImage(bucket, pngPath, pngBytes, "image/png");
+
+    let jpegPath: string | null = pngPath.replace(/\.png$/i, ".jpg");
+    let jpegUrl: string | null = null;
+
+    try {
+      const image = await Image.decode(pngBytes);
+      const jpegBytes = await image.encodeJPEG(90);
+      if (!jpegPath) {
+        throw new Error("JPEG path is undefined");
+      }
+      await uploadImage(bucket, jpegPath, jpegBytes, "image/jpeg");
+
+      if (jpegPath) {
+        const { data: jpegUrlData } = supabase.storage
+          .from(bucket)
+          .getPublicUrl(jpegPath);
+        jpegUrl = jpegUrlData.publicUrl;
+      }
+    } catch (jpegError) {
+      console.error("JPEG conversion failed:", jpegError);
+      jpegPath = null;
+    }
+
     // Get public URL for the PNG
     const { data: urlData } = supabase.storage
       .from(bucket)
@@ -120,7 +143,9 @@ Deno.serve(async (req) => {
       bucket,
       svg_path: key,
       png_path: pngPath,
-      png_url: urlData.publicUrl
+      png_url: urlData.publicUrl,
+      jpeg_path: jpegPath,
+      jpeg_url: jpegUrl
     };
     return new Response(JSON.stringify(resBody), {
       headers: {

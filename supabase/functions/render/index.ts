@@ -53,27 +53,36 @@ serve(async (req) => {
       throw new Error(`Failed to upload image: ${uploadError.message}`);
     }
     
-    console.log('SVG uploaded, now converting to PNG...');
-    
-    // Call svg-to-png-renderer function to convert SVG to PNG
-    const pngResponse = await supabase.functions.invoke('svg-to-png-renderer', {
+    console.log('SVG uploaded, now converting to raster formats...');
+
+    // Call svg-to-png-renderer function to convert SVG to PNG and JPEG
+    const rasterResponse = await supabase.functions.invoke('svg-to-png-renderer', {
       body: {
         bucket: 'api-renders',
         key: imagePath
       }
     });
 
-    if (pngResponse.error) {
-      console.error('PNG conversion error:', pngResponse.error);
-      throw new Error(`Failed to convert SVG to PNG: ${pngResponse.error.message}`);
+    if (rasterResponse.error) {
+      console.error('Raster conversion error:', rasterResponse.error);
+      throw new Error(`Failed to convert SVG: ${rasterResponse.error.message}`);
     }
 
-    const pngImageUrl = pngResponse.data.png_url;
-    console.log('Generated PNG image URL:', pngImageUrl);
+    const pngImageUrl = rasterResponse.data?.png_url ?? null;
+    const jpegImageUrl = rasterResponse.data?.jpeg_url ?? null;
+    const finalImageUrl = jpegImageUrl || pngImageUrl;
+
+    if (!finalImageUrl) {
+      throw new Error('Raster conversion did not return any image URLs');
+    }
+
+    console.log('Generated image URLs:', { pngImageUrl, jpegImageUrl });
 
     return new Response(JSON.stringify({
       success: true,
-      image_url: pngImageUrl,
+      image_url: finalImageUrl,
+      png_url: pngImageUrl,
+      jpeg_url: jpegImageUrl,
       template_id,
       generation_time: '1.2s',
       message: 'Image rendered successfully'
@@ -125,8 +134,7 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     console.log('Generated SVG length:', svg.length);
     console.log('SVG preview:', svg.substring(0, 500) + '...');
     
-    // Instead of converting to PNG (which is complex in Deno), 
-    // return the SVG as bytes - browsers can display SVG files directly
+    // Return the SVG as bytes; the downstream renderer handles rasterization
     return new TextEncoder().encode(svg);
     
   } catch (error) {
@@ -146,22 +154,56 @@ function renderObjectToSVG(obj: any): string {
     switch (objectType) {
       case 'textbox':
       case 'text':
-        const x = obj.left || 0;
-        const y = (obj.top || 0) + (obj.fontSize || 16);
+      case 'i-text': {
+        const baseX = obj.left || 0;
+        const baseY = obj.top || 0;
         const fontSize = obj.fontSize || 16;
         const fill = obj.fill || '#000000';
         const fontFamily = obj.fontFamily || 'Arial';
-        const text = obj.text || '';
-        
+        const text = (obj.text || '').toString();
+
         // Handle text scaling if present
         const scaleX = obj.scaleX || 1;
         const scaleY = obj.scaleY || 1;
         const scaledFontSize = fontSize * Math.max(scaleX, scaleY);
-        
-        console.log(`Text object: "${text}" at (${x}, ${y}), size: ${scaledFontSize}`);
-        
-        svg += `<text x="${x}" y="${y}" font-family="${fontFamily}" font-size="${scaledFontSize}" fill="${fill}"`;
-        
+        const lineHeight = obj.lineHeight || 1.16;
+
+        const width = (obj.width || (text.length * fontSize * 0.6)) * scaleX;
+        const originX = obj.originX || 'left';
+        const originY = obj.originY || 'top';
+
+        let x = baseX;
+        let y = baseY;
+
+        // Adjust for origin offsets (Fabric positions objects relative to origin)
+        if (originX === 'center') {
+          x -= width / 2;
+        } else if (originX === 'right') {
+          x -= width;
+        }
+
+        if (originY === 'center') {
+          y -= (obj.height || scaledFontSize) * scaleY / 2;
+        } else if (originY === 'bottom') {
+          y -= (obj.height || scaledFontSize) * scaleY;
+        }
+
+        // SVG text uses the baseline for the y coordinate
+        y += scaledFontSize;
+
+        let textAnchor = 'start';
+        if (obj.textAlign === 'center') {
+          textAnchor = 'middle';
+          x += width / 2;
+        } else if (obj.textAlign === 'right') {
+          textAnchor = 'end';
+          x += width;
+        }
+
+        console.log(`Text object: "${text}" at (${x}, ${y}), size: ${scaledFontSize}, anchor: ${textAnchor}`);
+
+        svg += `<text x="${x}" y="${y}" font-family="${fontFamily}" font-size="${scaledFontSize}" fill="${fill}" text-anchor="${textAnchor}"`;
+
         // Add font weight and style if present
         if (obj.fontWeight) {
           svg += ` font-weight="${obj.fontWeight}"`;
@@ -169,22 +211,36 @@ function renderObjectToSVG(obj: any): string {
         if (obj.fontStyle) {
           svg += ` font-style="${obj.fontStyle}"`;
         }
-        if (obj.textAlign) {
-          svg += ` text-anchor="${obj.textAlign === 'center' ? 'middle' : obj.textAlign === 'right' ? 'end' : 'start'}"`;
+        if (obj.underline) {
+          svg += ' text-decoration="underline"';
         }
-        
+
         // Add rotation if present
         if (obj.angle) {
-          const centerX = x + (obj.width || 0) * scaleX / 2;
-          const centerY = y - (obj.height || 0) * scaleY / 2;
+          const centerX = x;
+          const centerY = y - scaledFontSize / 2;
           svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
         }
-        
-        svg += `>${escapeXml(text)}</text>`;
+
+        const lines = text.split(/\r?\n/);
+        if (lines.length === 1) {
+          svg += `>${escapeXml(lines[0])}</text>`;
+        } else {
+          svg += '>'; 
+          lines.forEach((line: string, index: number) => {
+            if (index === 0) {
+              svg += `<tspan x="${x}" dy="0">${escapeXml(line)}</tspan>`;
+            } else {
+              svg += `<tspan x="${x}" dy="${scaledFontSize * lineHeight}">${escapeXml(line)}</tspan>`;
+            }
+          });
+          svg += '</text>';
+        }
         break;
+      }
         
       case 'rect':
-      case 'rectangle':
+      case 'rectangle': {
         const rectX = obj.left || 0;
         const rectY = obj.top || 0;
         const rectWidth = (obj.width || 100) * (obj.scaleX || 1);
@@ -209,8 +265,9 @@ function renderObjectToSVG(obj: any): string {
         
         svg += `/>`;
         break;
-        
-      case 'circle':
+      }
+
+      case 'circle': {
         const circleX = (obj.left || 0) + (obj.radius || 50) * (obj.scaleX || 1);
         const circleY = (obj.top || 0) + (obj.radius || 50) * (obj.scaleY || 1);
         const radius = (obj.radius || 50) * Math.max(obj.scaleX || 1, obj.scaleY || 1);
@@ -232,8 +289,9 @@ function renderObjectToSVG(obj: any): string {
         
         svg += `/>`;
         break;
-        
-      case 'image':
+      }
+
+      case 'image': {
         if (obj.src) {
           const imgX = obj.left || 0;
           const imgY = obj.top || 0;
@@ -253,8 +311,9 @@ function renderObjectToSVG(obj: any): string {
           svg += `/>`;
         }
         break;
-        
-      case 'line':
+      }
+
+      case 'line': {
         const x1 = obj.x1 || obj.left || 0;
         const y1 = obj.y1 || obj.top || 0;
         const x2 = obj.x2 || (obj.left || 0) + (obj.width || 100);
@@ -274,8 +333,9 @@ function renderObjectToSVG(obj: any): string {
         
         svg += `/>`;
         break;
-        
-      default:
+      }
+
+      default: {
         console.log('Unknown object type:', obj.type, 'Object keys:', Object.keys(obj));
         // Try to render as a generic rectangle if it has basic properties
         if (obj.left !== undefined && obj.top !== undefined) {
@@ -284,11 +344,13 @@ function renderObjectToSVG(obj: any): string {
           const genWidth = (obj.width || 50) * (obj.scaleX || 1);
           const genHeight = (obj.height || 50) * (obj.scaleY || 1);
           const genFill = obj.fill || '#cccccc';
-          
+
           console.log(`Generic object: (${genX}, ${genY}) ${genWidth}x${genHeight}, fill: ${genFill}`);
-          
+
           svg += `<rect x="${genX}" y="${genY}" width="${genWidth}" height="${genHeight}" fill="${genFill}"/>`;
         }
+        break;
+      }
     }
   } catch (error) {
     console.error('Error rendering object to SVG:', error, 'Object:', obj);
