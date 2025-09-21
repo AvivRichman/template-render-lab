@@ -53,27 +53,36 @@ serve(async (req) => {
       throw new Error(`Failed to upload image: ${uploadError.message}`);
     }
     
-    console.log('SVG uploaded, now converting to PNG...');
-    
-    // Call svg-to-png-renderer function to convert SVG to PNG
-    const pngResponse = await supabase.functions.invoke('svg-to-png-renderer', {
+    console.log('SVG uploaded, now converting to raster formats...');
+
+    // Call svg-to-png-renderer function to convert SVG to PNG and JPEG
+    const rasterResponse = await supabase.functions.invoke('svg-to-png-renderer', {
       body: {
         bucket: 'api-renders',
         key: imagePath
       }
     });
 
-    if (pngResponse.error) {
-      console.error('PNG conversion error:', pngResponse.error);
-      throw new Error(`Failed to convert SVG to PNG: ${pngResponse.error.message}`);
+    if (rasterResponse.error) {
+      console.error('Raster conversion error:', rasterResponse.error);
+      throw new Error(`Failed to convert SVG: ${rasterResponse.error.message}`);
     }
 
-    const pngImageUrl = pngResponse.data.png_url;
-    console.log('Generated PNG image URL:', pngImageUrl);
+    const pngImageUrl = rasterResponse.data?.png_url ?? null;
+    const jpegImageUrl = rasterResponse.data?.jpeg_url ?? null;
+    const finalImageUrl = jpegImageUrl || pngImageUrl;
+
+    if (!finalImageUrl) {
+      throw new Error('Raster conversion did not return any image URLs');
+    }
+
+    console.log('Generated image URLs:', { pngImageUrl, jpegImageUrl });
 
     return new Response(JSON.stringify({
       success: true,
-      image_url: pngImageUrl,
+      image_url: finalImageUrl,
+      png_url: pngImageUrl,
+      jpeg_url: jpegImageUrl,
       template_id,
       generation_time: '1.2s',
       message: 'Image rendered successfully'
@@ -125,8 +134,7 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     console.log('Generated SVG length:', svg.length);
     console.log('SVG preview:', svg.substring(0, 500) + '...');
     
-    // Instead of converting to PNG (which is complex in Deno), 
-    // return the SVG as bytes - browsers can display SVG files directly
+    // Return the SVG as bytes; the downstream renderer handles rasterization
     return new TextEncoder().encode(svg);
     
   } catch (error) {
@@ -146,149 +154,196 @@ function renderObjectToSVG(obj: any): string {
     switch (objectType) {
       case 'textbox':
       case 'text':
-        const x = obj.left || 0;
-        const y = (obj.top || 0) + (obj.fontSize || 16);
+      case 'i-text': {
         const fontSize = obj.fontSize || 16;
-        const fill = obj.fill || '#000000';
-        const fontFamily = obj.fontFamily || 'Arial';
-        const text = obj.text || '';
-        
-        // Handle text scaling if present
-        const scaleX = obj.scaleX || 1;
-        const scaleY = obj.scaleY || 1;
-        const scaledFontSize = fontSize * Math.max(scaleX, scaleY);
-        
-        console.log(`Text object: "${text}" at (${x}, ${y}), size: ${scaledFontSize}`);
-        
-        svg += `<text x="${x}" y="${y}" font-family="${fontFamily}" font-size="${scaledFontSize}" fill="${fill}"`;
-        
-        // Add font weight and style if present
+        const fill = normalizeColor(obj.fill, '#000000');
+        const fontFamily = sanitizeFontFamily(obj.fontFamily || 'Arial');
+        const text = (obj.text || '').toString();
+        const lineHeight = obj.lineHeight || 1.16;
+        const opacity = obj.opacity ?? 1;
+
+        const lines = text.split(/\r?\n/);
+        const textBoxWidth = obj.width || Math.max(...lines.map(line => line.length || 1)) * fontSize * 0.6;
+        const textBoxHeight = obj.height || (lines.length || 1) * fontSize * lineHeight;
+        const transformMatrix = computeObjectMatrix(obj, textBoxWidth, textBoxHeight);
+
+        let textAnchor = 'start';
+        let textX = 0;
+        if (obj.textAlign === 'center') {
+          textAnchor = 'middle';
+          textX = textBoxWidth / 2;
+        } else if (obj.textAlign === 'right') {
+          textAnchor = 'end';
+          textX = textBoxWidth;
+        }
+
+        const baseY = fontSize;
+
+        console.log(`Text object: "${text}" width=${textBoxWidth}, height=${textBoxHeight}`);
+
+        svg += `<text xml:space="preserve" x="${formatNumber(textX)}" y="${formatNumber(baseY)}" font-family="${fontFamily}" font-size="${formatNumber(fontSize)}" fill="${fill}" text-anchor="${textAnchor}"`;
+
         if (obj.fontWeight) {
           svg += ` font-weight="${obj.fontWeight}"`;
         }
         if (obj.fontStyle) {
           svg += ` font-style="${obj.fontStyle}"`;
         }
-        if (obj.textAlign) {
-          svg += ` text-anchor="${obj.textAlign === 'center' ? 'middle' : obj.textAlign === 'right' ? 'end' : 'start'}"`;
+        if (obj.underline) {
+          svg += ' text-decoration="underline"';
         }
-        
-        // Add rotation if present
-        if (obj.angle) {
-          const centerX = x + (obj.width || 0) * scaleX / 2;
-          const centerY = y - (obj.height || 0) * scaleY / 2;
-          svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
+        if (opacity < 1) {
+          svg += ` fill-opacity="${formatNumber(opacity)}"`;
         }
-        
-        svg += `>${escapeXml(text)}</text>`;
+        if (transformMatrix) {
+          svg += ` transform="matrix(${matrixToAttribute(transformMatrix)})"`;
+        }
+
+        if (lines.length === 1) {
+          svg += `>${escapeXml(lines[0])}</text>`;
+        } else {
+          svg += '>';
+          lines.forEach((line: string, index: number) => {
+            if (index === 0) {
+              svg += `<tspan x="${formatNumber(textX)}" dy="0">${escapeXml(line)}</tspan>`;
+            } else {
+              svg += `<tspan x="${formatNumber(textX)}" dy="${formatNumber(fontSize * lineHeight)}">${escapeXml(line)}</tspan>`;
+            }
+          });
+          svg += '</text>';
+        }
         break;
+      }
         
       case 'rect':
-      case 'rectangle':
-        const rectX = obj.left || 0;
-        const rectY = obj.top || 0;
-        const rectWidth = (obj.width || 100) * (obj.scaleX || 1);
-        const rectHeight = (obj.height || 100) * (obj.scaleY || 1);
-        const rectFill = obj.fill || '#000000';
+      case 'rectangle': {
+        const rectWidth = obj.width || 100;
+        const rectHeight = obj.height || 100;
+        const rectFill = normalizeColor(obj.fill, '#000000');
         const rectStroke = obj.stroke || 'none';
         const rectStrokeWidth = obj.strokeWidth || 0;
-        
-        console.log(`Rectangle: (${rectX}, ${rectY}) ${rectWidth}x${rectHeight}, fill: ${rectFill}`);
-        
-        svg += `<rect x="${rectX}" y="${rectY}" width="${rectWidth}" height="${rectHeight}" fill="${rectFill}"`;
-        
+
+        console.log(`Rectangle: ${rectWidth}x${rectHeight}, fill: ${rectFill}`);
+
+        svg += `<rect x="0" y="0" width="${formatNumber(rectWidth)}" height="${formatNumber(rectHeight)}" fill="${rectFill}"`;
+
         if (rectStroke !== 'none' && rectStrokeWidth > 0) {
           svg += ` stroke="${rectStroke}" stroke-width="${rectStrokeWidth}"`;
         }
-        
-        if (obj.angle) {
-          const centerX = rectX + rectWidth / 2;
-          const centerY = rectY + rectHeight / 2;
-          svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
+
+        if (obj.opacity !== undefined && obj.opacity < 1) {
+          svg += ` fill-opacity="${formatNumber(obj.opacity)}"`;
         }
-        
+
+        const rectTransform = computeObjectMatrix(obj, rectWidth, rectHeight);
+        if (rectTransform) {
+          svg += ` transform="matrix(${matrixToAttribute(rectTransform)})"`;
+        }
+
         svg += `/>`;
         break;
-        
-      case 'circle':
-        const circleX = (obj.left || 0) + (obj.radius || 50) * (obj.scaleX || 1);
-        const circleY = (obj.top || 0) + (obj.radius || 50) * (obj.scaleY || 1);
-        const radius = (obj.radius || 50) * Math.max(obj.scaleX || 1, obj.scaleY || 1);
-        const circleFill = obj.fill || '#000000';
+      }
+
+      case 'circle': {
+        const radius = obj.radius || 50;
+        const circleFill = normalizeColor(obj.fill, '#000000');
         const circleStroke = obj.stroke || 'none';
         const circleStrokeWidth = obj.strokeWidth || 0;
-        
-        console.log(`Circle: center (${circleX}, ${circleY}), radius: ${radius}, fill: ${circleFill}`);
-        
-        svg += `<circle cx="${circleX}" cy="${circleY}" r="${radius}" fill="${circleFill}"`;
-        
+
+        console.log(`Circle: radius ${radius}, fill: ${circleFill}`);
+
+        svg += `<circle cx="${formatNumber(radius)}" cy="${formatNumber(radius)}" r="${formatNumber(radius)}" fill="${circleFill}"`;
+
         if (circleStroke !== 'none' && circleStrokeWidth > 0) {
           svg += ` stroke="${circleStroke}" stroke-width="${circleStrokeWidth}"`;
         }
-        
-        if (obj.angle) {
-          svg += ` transform="rotate(${obj.angle} ${circleX} ${circleY})"`;
+
+        if (obj.opacity !== undefined && obj.opacity < 1) {
+          svg += ` fill-opacity="${formatNumber(obj.opacity)}"`;
         }
-        
+
+        const circleTransform = computeObjectMatrix(obj, radius * 2, radius * 2);
+        if (circleTransform) {
+          svg += ` transform="matrix(${matrixToAttribute(circleTransform)})"`;
+        }
+
         svg += `/>`;
         break;
-        
-      case 'image':
+      }
+
+      case 'image': {
         if (obj.src) {
-          const imgX = obj.left || 0;
-          const imgY = obj.top || 0;
-          const imgWidth = (obj.width || 100) * (obj.scaleX || 1);
-          const imgHeight = (obj.height || 100) * (obj.scaleY || 1);
-          
-          console.log(`Image: (${imgX}, ${imgY}) ${imgWidth}x${imgHeight}, src: ${obj.src.substring(0, 50)}...`);
-          
-          svg += `<image x="${imgX}" y="${imgY}" width="${imgWidth}" height="${imgHeight}" href="${obj.src}"`;
-          
-          if (obj.angle) {
-            const centerX = imgX + imgWidth / 2;
-            const centerY = imgY + imgHeight / 2;
-            svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
+          const imgWidth = obj.width || 100;
+          const imgHeight = obj.height || 100;
+
+          console.log(`Image: width=${imgWidth}, height=${imgHeight}, src: ${obj.src.substring(0, 50)}...`);
+
+          svg += `<image x="0" y="0" width="${formatNumber(imgWidth)}" height="${formatNumber(imgHeight)}" href="${obj.src}"`;
+
+          if (obj.opacity !== undefined && obj.opacity < 1) {
+            svg += ` opacity="${formatNumber(obj.opacity)}"`;
           }
-          
+
+          const imageTransform = computeObjectMatrix(obj, imgWidth, imgHeight);
+          if (imageTransform) {
+            svg += ` transform="matrix(${matrixToAttribute(imageTransform)})"`;
+          }
+
           svg += `/>`;
         }
         break;
-        
-      case 'line':
-        const x1 = obj.x1 || obj.left || 0;
-        const y1 = obj.y1 || obj.top || 0;
-        const x2 = obj.x2 || (obj.left || 0) + (obj.width || 100);
-        const y2 = obj.y2 || (obj.top || 0) + (obj.height || 0);
+      }
+
+      case 'line': {
+        const x1 = obj.x1 ?? obj.left ?? 0;
+        const y1 = obj.y1 ?? obj.top ?? 0;
+        const x2 = obj.x2 ?? ((obj.left ?? 0) + (obj.width || 100));
+        const y2 = obj.y2 ?? ((obj.top ?? 0) + (obj.height || 0));
         const lineStroke = obj.stroke || '#000000';
         const lineStrokeWidth = obj.strokeWidth || 1;
-        
+
         console.log(`Line: (${x1}, ${y1}) to (${x2}, ${y2}), stroke: ${lineStroke}`);
-        
-        svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${lineStroke}" stroke-width="${lineStrokeWidth}"`;
-        
-        if (obj.angle) {
-          const centerX = (x1 + x2) / 2;
-          const centerY = (y1 + y2) / 2;
-          svg += ` transform="rotate(${obj.angle} ${centerX} ${centerY})"`;
+
+        svg += `<line x1="${formatNumber(x1)}" y1="${formatNumber(y1)}" x2="${formatNumber(x2)}" y2="${formatNumber(y2)}" stroke="${lineStroke}" stroke-width="${lineStrokeWidth}"`;
+
+        if (obj.opacity !== undefined && obj.opacity < 1) {
+          svg += ` stroke-opacity="${formatNumber(obj.opacity)}"`;
         }
-        
+
+        const lineTransform = computeObjectMatrix(obj);
+        if (lineTransform) {
+          svg += ` transform="matrix(${matrixToAttribute(lineTransform)})"`;
+        }
+
         svg += `/>`;
         break;
-        
-      default:
+      }
+
+      default: {
         console.log('Unknown object type:', obj.type, 'Object keys:', Object.keys(obj));
         // Try to render as a generic rectangle if it has basic properties
         if (obj.left !== undefined && obj.top !== undefined) {
-          const genX = obj.left || 0;
-          const genY = obj.top || 0;
-          const genWidth = (obj.width || 50) * (obj.scaleX || 1);
-          const genHeight = (obj.height || 50) * (obj.scaleY || 1);
-          const genFill = obj.fill || '#cccccc';
-          
-          console.log(`Generic object: (${genX}, ${genY}) ${genWidth}x${genHeight}, fill: ${genFill}`);
-          
-          svg += `<rect x="${genX}" y="${genY}" width="${genWidth}" height="${genHeight}" fill="${genFill}"/>`;
+          const genWidth = obj.width || 50;
+          const genHeight = obj.height || 50;
+          const genFill = normalizeColor(obj.fill, '#cccccc');
+
+          console.log(`Generic object: ${genWidth}x${genHeight}, fill: ${genFill}`);
+
+          svg += `<rect x="0" y="0" width="${formatNumber(genWidth)}" height="${formatNumber(genHeight)}" fill="${genFill}"`;
+
+          if (obj.opacity !== undefined && obj.opacity < 1) {
+            svg += ` fill-opacity="${formatNumber(obj.opacity)}"`;
+          }
+
+          const genericTransform = computeObjectMatrix(obj, genWidth, genHeight);
+          if (genericTransform) {
+            svg += ` transform="matrix(${matrixToAttribute(genericTransform)})"`;
+          }
+
+          svg += '/>';
         }
+        break;
+      }
     }
   } catch (error) {
     console.error('Error rendering object to SVG:', error, 'Object:', obj);
@@ -305,11 +360,121 @@ function escapeXml(unsafe: string): string {
       case '>': return '&gt;';
       case '&': return '&amp;';
       case '\'': return '&apos;';
-      case '"': return '&quot;';
+      case "\"": return '&quot;';
       default: return c;
     }
   });
 }
+
+function formatNumber(value: number): string {
+  if (!Number.isFinite(value)) {
+    return '0';
+  }
+  return Number(value.toFixed(4)).toString();
+}
+
+function normalizeColor(value: string | undefined, fallback: string): string {
+  if (!value || value === 'transparent' || value === 'none') {
+    return fallback;
+  }
+  return value;
+}
+
+function sanitizeFontFamily(fontFamily: string): string {
+  const cleanedFamilies = (fontFamily || '')
+    .split(',')
+    .map(f => f.trim().replace(/^['"]|['"]$/g, ''))
+    .filter(Boolean);
+
+  const fallbacks = ['Arial', 'DejaVu Sans', 'sans-serif'];
+
+  for (const fallback of fallbacks) {
+    if (!cleanedFamilies.some(f => f.toLowerCase() === fallback.toLowerCase())) {
+      cleanedFamilies.push(fallback);
+    }
+  }
+
+  if (!cleanedFamilies.length) {
+    cleanedFamilies.push('sans-serif');
+  }
+
+  return cleanedFamilies
+    .map(f => (f.includes(' ') ? `'${f}'` : f))
+    .join(', ');
+}
+
+function computeObjectMatrix(obj: any, width?: number, height?: number): number[] | null {
+  try {
+    if (Array.isArray(obj?.transformMatrix) && obj.transformMatrix.length === 6) {
+      return obj.transformMatrix as number[];
+    }
+
+    const scaleX = (obj.scaleX ?? 1) * (obj.flipX ? -1 : 1);
+    const scaleY = (obj.scaleY ?? 1) * (obj.flipY ? -1 : 1);
+    const angle = (obj.angle ?? 0) * Math.PI / 180;
+    const skewX = (obj.skewX ?? 0) * Math.PI / 180;
+    const skewY = (obj.skewY ?? 0) * Math.PI / 180;
+
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+
+    let a = cos * scaleX;
+    let b = sin * scaleX;
+    let c = -sin * scaleY;
+    let d = cos * scaleY;
+
+    if (skewX) {
+      const tanX = Math.tan(skewX);
+      c += tanX * a;
+      d += tanX * b;
+    }
+
+    if (skewY) {
+      const tanY = Math.tan(skewY);
+      a += tanY * c;
+      b += tanY * d;
+    }
+
+    let e = obj.left ?? 0;
+    let f = obj.top ?? 0;
+
+    const boxWidth = width ?? obj.width ?? 0;
+    const boxHeight = height ?? obj.height ?? 0;
+    const originX = obj.originX || 'left';
+    const originY = obj.originY || 'top';
+
+    let offsetX = 0;
+    if (originX === 'center') {
+      offsetX = boxWidth / 2;
+    } else if (originX === 'right') {
+      offsetX = boxWidth;
+    }
+
+    let offsetY = 0;
+    if (originY === 'center') {
+      offsetY = boxHeight / 2;
+    } else if (originY === 'bottom') {
+      offsetY = boxHeight;
+    }
+
+    if (offsetX || offsetY) {
+      const translatedX = offsetX * a + offsetY * c;
+      const translatedY = offsetX * b + offsetY * d;
+      e -= translatedX;
+      f -= translatedY;
+    }
+
+    return [a, b, c, d, e, f];
+  } catch (error) {
+    console.error('Failed to compute transform matrix', error, obj);
+    return null;
+  }
+}
+
+function matrixToAttribute(matrix: number[]): string {
+  return matrix.map(value => formatNumber(value)).join(' ');
+}
+
 
 // Create a simple fallback SVG for errors
 function createFallbackSVG(): Uint8Array {

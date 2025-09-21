@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.28.0";
+import { Image } from "https://deno.land/x/imagescript@1.3.0/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -8,8 +9,36 @@ const corsHeaders = {
 const supabase = createClient(Deno.env.get("SUPABASE_URL"), Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"));
 console.info("svg-to-png-renderer function initialized");
 
-let resvgModule = null;
+let resvgModule: any = null;
 let wasmInitialized = false;
+let fontsLoaded = false;
+
+const FONT_DEFINITIONS = [
+  {
+    source: "https://unpkg.com/@fontsource/dejavu-sans/files/dejavu-sans-latin-400-normal.ttf",
+    families: ["DejaVu Sans", "Arial"],
+    weight: 400,
+    style: "normal" as const,
+  },
+];
+
+const fontByteCache = new Map<string, Uint8Array>();
+
+async function loadFontBytes(source: string): Promise<Uint8Array> {
+  if (fontByteCache.has(source)) {
+    return fontByteCache.get(source)!;
+  }
+
+  const response = await fetch(source);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch font from ${source}: ${response.status} ${response.statusText}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuffer);
+  fontByteCache.set(source, bytes);
+  return bytes;
+}
 
 async function ensureWasmInit() {
   if (wasmInitialized) return;
@@ -31,6 +60,34 @@ async function ensureWasmInit() {
   }
 }
 
+async function ensureFontsLoaded() {
+  if (fontsLoaded) {
+    return;
+  }
+
+  if (!wasmInitialized) {
+    await ensureWasmInit();
+  }
+
+  try {
+    for (const font of FONT_DEFINITIONS) {
+      const data = await loadFontBytes(font.source);
+      for (const family of font.families) {
+        await resvgModule.loadFont(data, {
+          family,
+          weight: font.weight,
+          style: font.style,
+        });
+        console.log(`Loaded font family "${family}" from ${font.source}`);
+      }
+    }
+    fontsLoaded = true;
+  } catch (error) {
+    console.error("Failed to load fonts for resvg:", error);
+    throw new Error(`Failed to load fonts: ${error.message}`);
+  }
+}
+
 async function fetchSvg(bucket, path) {
   const { data, error } = await supabase.storage.from(bucket).download(path);
   if (error) throw error;
@@ -38,8 +95,8 @@ async function fetchSvg(bucket, path) {
   return new TextDecoder().decode(arrayBuffer);
 }
 
-async function uploadPng(bucket, path, pngBytes, contentType = "image/png") {
-  const { data, error } = await supabase.storage.from(bucket).upload(path, pngBytes, {
+async function uploadImage(bucket, path, bytes, contentType) {
+  const { data, error } = await supabase.storage.from(bucket).upload(path, bytes, {
     contentType,
     upsert: true
   });
@@ -49,7 +106,8 @@ async function uploadPng(bucket, path, pngBytes, contentType = "image/png") {
 
 async function svgToPng(svg, width, height) {
   await ensureWasmInit();
-  
+  await ensureFontsLoaded();
+
   try {
     console.log("Creating Resvg instance with SVG length:", svg.length);
     
@@ -70,7 +128,7 @@ async function svgToPng(svg, width, height) {
     
     const pngBuffer = pngData.asPng();
     console.log("PNG conversion successful, size:", pngBuffer.length, "bytes");
-    
+
     return pngBuffer;
   } catch (error) {
     console.error("Error in svgToPng:", error);
@@ -109,8 +167,30 @@ Deno.serve(async (req) => {
     const svg = await fetchSvg(bucket, key);
     const pngBytes = await svgToPng(svg, width);
     const pngPath = key.replace(/\.svg$/i, "") + ".png";
-    await uploadPng(bucket, pngPath, pngBytes);
-    
+    await uploadImage(bucket, pngPath, pngBytes, "image/png");
+
+    let jpegPath: string | null = pngPath.replace(/\.png$/i, ".jpg");
+    let jpegUrl: string | null = null;
+
+    try {
+      const image = await Image.decode(pngBytes);
+      const jpegBytes = await image.encodeJPEG(90);
+      if (!jpegPath) {
+        throw new Error("JPEG path is undefined");
+      }
+      await uploadImage(bucket, jpegPath, jpegBytes, "image/jpeg");
+
+      if (jpegPath) {
+        const { data: jpegUrlData } = supabase.storage
+          .from(bucket)
+          .getPublicUrl(jpegPath);
+        jpegUrl = jpegUrlData.publicUrl;
+      }
+    } catch (jpegError) {
+      console.error("JPEG conversion failed:", jpegError);
+      jpegPath = null;
+    }
+
     // Get public URL for the PNG
     const { data: urlData } = supabase.storage
       .from(bucket)
@@ -120,7 +200,9 @@ Deno.serve(async (req) => {
       bucket,
       svg_path: key,
       png_path: pngPath,
-      png_url: urlData.publicUrl
+      png_url: urlData.publicUrl,
+      jpeg_path: jpegPath,
+      jpeg_url: jpegUrl
     };
     return new Response(JSON.stringify(resBody), {
       headers: {
