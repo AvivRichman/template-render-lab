@@ -53,27 +53,36 @@ serve(async (req) => {
       throw new Error(`Failed to upload image: ${uploadError.message}`);
     }
     
-    console.log('SVG uploaded, now converting to PNG...');
-    
-    // Call svg-to-png-renderer function to convert SVG to PNG
-    const pngResponse = await supabase.functions.invoke('svg-to-png-renderer', {
+    console.log('SVG uploaded, now converting to raster formats...');
+
+    // Call svg-to-png-renderer function to convert SVG to PNG and JPEG
+    const rasterResponse = await supabase.functions.invoke('svg-to-png-renderer', {
       body: {
         bucket: 'api-renders',
         key: imagePath
       }
     });
 
-    if (pngResponse.error) {
-      console.error('PNG conversion error:', pngResponse.error);
-      throw new Error(`Failed to convert SVG to PNG: ${pngResponse.error.message}`);
+    if (rasterResponse.error) {
+      console.error('Raster conversion error:', rasterResponse.error);
+      throw new Error(`Failed to convert SVG: ${rasterResponse.error.message}`);
     }
 
-    const pngImageUrl = pngResponse.data.png_url;
-    console.log('Generated PNG image URL:', pngImageUrl);
+    const pngImageUrl = rasterResponse.data?.png_url ?? null;
+    const jpegImageUrl = rasterResponse.data?.jpeg_url ?? null;
+    const finalImageUrl = jpegImageUrl || pngImageUrl;
+
+    if (!finalImageUrl) {
+      throw new Error('Raster conversion did not return any image URLs');
+    }
+
+    console.log('Generated image URLs:', { pngImageUrl, jpegImageUrl });
 
     return new Response(JSON.stringify({
       success: true,
-      image_url: pngImageUrl,
+      image_url: finalImageUrl,
+      png_url: pngImageUrl,
+      jpeg_url: jpegImageUrl,
       template_id,
       generation_time: '1.2s',
       message: 'Image rendered successfully'
@@ -125,8 +134,7 @@ async function generateImageFromSceneData(sceneData: any): Promise<Uint8Array> {
     console.log('Generated SVG length:', svg.length);
     console.log('SVG preview:', svg.substring(0, 500) + '...');
     
-    // Instead of converting to PNG (which is complex in Deno), 
-    // return the SVG as bytes - browsers can display SVG files directly
+    // Return the SVG as bytes; the downstream renderer handles rasterization
     return new TextEncoder().encode(svg);
     
   } catch (error) {
