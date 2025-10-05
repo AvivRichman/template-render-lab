@@ -395,9 +395,7 @@ print(result["image_url"])`;
                   <pre className="bg-[hsl(var(--editor-background))] p-3 rounded-md text-xs overflow-auto border">
 {`{
   "success": true,
-  "image_url": "https://...generated-image.jpg",
-  "jpeg_url": "https://...generated-image.jpg",
-  "png_url": "https://...generated-image.png",
+  "image_url": "https://...generated-image.png",
   "template_id": "template_123",
   "generation_time": "1.2s"
 }`}

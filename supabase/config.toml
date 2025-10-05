@@ -11,6 +11,3 @@ verify_jwt = false
 
 [functions.render]
 verify_jwt = false
-
-[functions.svg-to-png-renderer]
-verify_jwt = false

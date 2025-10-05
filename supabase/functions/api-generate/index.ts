@@ -165,8 +165,6 @@ serve(async (req) => {
     return new Response(JSON.stringify({
       success: true,
       image_url: renderResponse.data.image_url,
-      jpeg_url: renderResponse.data.jpeg_url ?? null,
-      png_url: renderResponse.data.png_url ?? null,
       template_id,
       generation_time: renderResponse.data.generation_time || '1.2s',
       message: 'Image generated successfully'
