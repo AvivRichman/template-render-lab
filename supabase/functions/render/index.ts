@@ -82,9 +82,20 @@ serve(async (req) => {
       console.log('Continuing to poll database despite webhook error...');
     }
 
-    // Poll database for PNG URL update
+    // Get current value before webhook to detect when it changes
+    const { data: beforeData } = await supabase
+      .from('templates')
+      .select('last_image_created')
+      .eq('id', template_id)
+      .eq('user_id', user_id)
+      .single();
+    
+    const previousUrl = beforeData?.last_image_created;
+    console.log('Previous URL in database:', previousUrl || 'none');
+
+    // Poll database for PNG URL update - wait for NEW value
     console.log('Waiting for PNG generation...');
-    const maxAttempts = 60; // 60 attempts
+    const maxAttempts = 60; // 60 attempts (60 seconds total)
     const pollInterval = 1000; // 1 second
     let pngUrl = null;
     
@@ -103,7 +114,8 @@ serve(async (req) => {
         continue;
       }
       
-      if (templateData?.last_image_created) {
+      // Only accept if the URL has CHANGED from the previous value
+      if (templateData?.last_image_created && templateData.last_image_created !== previousUrl) {
         pngUrl = templateData.last_image_created;
         console.log('PNG URL found:', pngUrl);
         break;
