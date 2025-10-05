@@ -125,7 +125,17 @@ serve(async (req) => {
     }
     
     if (!pngUrl) {
-      throw new Error('Timeout waiting for PNG generation');
+      console.error('PNG generation timed out. Webhook may not be active.');
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'PNG generation timed out',
+        svg_url: mockImageUrl,
+        template_id,
+        message: 'n8n webhook not responding. Please activate the webhook in n8n by clicking "Execute workflow" button, or check if the webhook URL is correct.'
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     return new Response(JSON.stringify({
