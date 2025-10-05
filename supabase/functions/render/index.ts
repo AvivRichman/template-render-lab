@@ -62,9 +62,68 @@ serve(async (req) => {
 
     console.log('Generated image URL:', mockImageUrl);
 
+    // Send SVG URL and template_id to webhook
+    console.log('Sending to webhook...');
+    try {
+      const webhookResponse = await fetch('https://n8n.srv976711.hstgr.cloud/webhook-test/b40aa1a7-9bde-4bf8-9ac0-c75ef4d19b2f', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          image_url: mockImageUrl,
+          template_id: template_id
+        })
+      });
+      
+      if (!webhookResponse.ok) {
+        console.error('Webhook error:', await webhookResponse.text());
+        throw new Error('Failed to send to webhook');
+      }
+      
+      console.log('Webhook called successfully');
+    } catch (webhookError) {
+      console.error('Error calling webhook:', webhookError);
+      throw new Error(`Failed to trigger PNG generation: ${webhookError.message}`);
+    }
+
+    // Poll database for PNG URL update
+    console.log('Waiting for PNG generation...');
+    const maxAttempts = 60; // 60 attempts
+    const pollInterval = 1000; // 1 second
+    let pngUrl = null;
+    
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+      
+      const { data: templateData, error: fetchError } = await supabase
+        .from('templates')
+        .select('last_image_created')
+        .eq('id', template_id)
+        .eq('user_id', user_id)
+        .single();
+      
+      if (fetchError) {
+        console.error('Error fetching template:', fetchError);
+        continue;
+      }
+      
+      if (templateData?.last_image_created) {
+        pngUrl = templateData.last_image_created;
+        console.log('PNG URL found:', pngUrl);
+        break;
+      }
+      
+      console.log(`Polling attempt ${attempt + 1}/${maxAttempts}...`);
+    }
+    
+    if (!pngUrl) {
+      throw new Error('Timeout waiting for PNG generation');
+    }
+
     return new Response(JSON.stringify({
       success: true,
-      image_url: mockImageUrl,
+      image_url: pngUrl,
       template_id,
       generation_time: '1.2s',
       message: 'Image rendered successfully'
