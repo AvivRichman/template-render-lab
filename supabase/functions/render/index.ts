@@ -64,7 +64,7 @@ serve(async (req) => {
 
     // Send SVG URL and template_id to webhook as GET request with query parameters
     console.log('Sending to webhook...');
-    const webhookUrl = `https://n8n.srv976711.hstgr.cloud/webhook-test/b40aa1a7-9bde-4bf8-9ac0-c75ef4d19b2f?image_url=${encodeURIComponent(mockImageUrl)}&template_id=${template_id}`;
+    const webhookUrl = `https://n8n.srv976711.hstgr.cloud/webhook/b40aa1a7-9bde-4bf8-9ac0-c75ef4d19b2f?image_url=${encodeURIComponent(mockImageUrl)}&template_id=${template_id}`;
     try {
       const webhookResponse = await fetch(webhookUrl, {
         method: 'GET'
