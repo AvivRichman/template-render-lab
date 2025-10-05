@@ -71,14 +71,15 @@ serve(async (req) => {
       });
       
       if (!webhookResponse.ok) {
-        console.error('Webhook error:', await webhookResponse.text());
-        throw new Error('Failed to send to webhook');
+        const errorText = await webhookResponse.text();
+        console.error('Webhook error:', errorText);
+        console.log('Continuing to poll database despite webhook error...');
+      } else {
+        console.log('Webhook called successfully');
       }
-      
-      console.log('Webhook called successfully');
     } catch (webhookError) {
       console.error('Error calling webhook:', webhookError);
-      throw new Error(`Failed to trigger PNG generation: ${webhookError.message}`);
+      console.log('Continuing to poll database despite webhook error...');
     }
 
     // Poll database for PNG URL update
