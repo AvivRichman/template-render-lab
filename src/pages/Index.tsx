@@ -26,6 +26,7 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState("upload");
   const [uploadedImage, setUploadedImage] = useState<string>("");
   const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
+  const [editorKey, setEditorKey] = useState(0); // Force re-render of editor
   const { user, isLoading, signOut } = useAuth();
   const { templates, refreshTemplates } = useTemplates();
   const navigate = useNavigate();
@@ -52,13 +53,15 @@ const Index = () => {
     if (error) {
       console.error('Error fetching latest template:', error);
       // Fallback to cached data
-      setSelectedTemplate(template.scene_data);
+      setSelectedTemplate(template.scene_data || null);
     } else {
-      // Use the most recent data from database
-      setSelectedTemplate(latestTemplate.scene_data);
+      // Use the most recent data from database - create new object to force re-render
+      console.log('Loading latest template data:', latestTemplate.scene_data);
+      setSelectedTemplate(JSON.parse(JSON.stringify(latestTemplate.scene_data)));
     }
     
     setUploadedImage(""); // Clear uploaded image when loading template
+    setEditorKey(prev => prev + 1); // Force ImageEditor to remount
     setActiveTab("editor");
   };
 
@@ -147,6 +150,7 @@ const Index = () => {
             <TabsContent value="editor" className="space-y-6">
               <div className="h-[calc(100vh-200px)]">
                 <ImageEditor 
+                  key={editorKey} // Force remount when key changes
                   uploadedImage={uploadedImage} 
                   templateData={selectedTemplate}
                   onTemplateSaved={handleTemplateSaved}
