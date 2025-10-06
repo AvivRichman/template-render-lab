@@ -62,13 +62,30 @@ serve(async (req) => {
     const templatesWithElements = templates?.map(template => {
       const elements: any[] = [];
       
+      // Counters for systematic naming
+      let textCounter = 0;
+      let shapeCounter = 0;
+      let imageCounter = 0;
+      
       if (template.scene_data?.objects) {
         template.scene_data.objects.forEach((obj: any, index: number) => {
-          // Use systematic name if available, otherwise generate one
-          const systematicName = obj.systematicName || 
-            (obj.text !== undefined ? `text_${index + 1}` : 
-             obj.fill !== undefined || obj.stroke !== undefined ? `shape_${index + 1}` :
-             obj.src ? `image_${index + 1}` : `element_${index + 1}`);
+          let systematicName = obj.systematicName;
+          
+          // Generate systematic name if not available
+          if (!systematicName) {
+            if (obj.text !== undefined) {
+              textCounter++;
+              systematicName = `text_${textCounter}`;
+            } else if (obj.fill !== undefined || obj.stroke !== undefined) {
+              shapeCounter++;
+              systematicName = `shape_${shapeCounter}`;
+            } else if (obj.src) {
+              imageCounter++;
+              systematicName = `image_${imageCounter}`;
+            } else {
+              systematicName = `element_${index + 1}`;
+            }
+          }
           
           // Handle fabric.js text objects
           if (obj.text !== undefined) {

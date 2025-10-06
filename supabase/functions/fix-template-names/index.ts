@@ -59,12 +59,12 @@ serve(async (req) => {
         // Assign systematicNames based on type and order
         if (!obj.systematicName) {
           if (obj.type === 'Text' || obj.type === 'Textbox') {
-            // For this specific template, start text numbering at 2
+            // Start text numbering at 1
             const textIndex = sceneData.objects
               .slice(0, index)
               .filter((o: any) => o.type === 'Text' || o.type === 'Textbox')
               .length;
-            obj.systematicName = `text_${textIndex + 2}`;
+            obj.systematicName = `text_${textIndex + 1}`;
           } else if (obj.type === 'Rect' || obj.type === 'Circle' || obj.type === 'Line') {
             const shapeIndex = sceneData.objects
               .slice(0, index)
