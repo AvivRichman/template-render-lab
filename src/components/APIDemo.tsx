@@ -521,7 +521,7 @@ print(result["image_url"])`;
                       <pre className="text-xs mt-1 text-muted-foreground overflow-x-auto">
 {`{
   "template_id": "${template.id}",
-  "overrides": {${template.elements.slice(0, 2).map(el => `
+  "overrides": {${template.elements.map(el => `
     "${el.editable_key}": "${el.type === 'text' ? 'New text content' : '#ff0000'}"`).join(',')}
   }
 }`}
