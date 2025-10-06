@@ -522,7 +522,7 @@ print(result["image_url"])`;
 {`{
   "template_id": "${template.id}",
   "overrides": {${template.elements.map(el => `
-    "${el.editable_key}": "${el.type === 'text' ? 'New text content' : '#ff0000'}"`).join(',')}
+    "${el.editable_key}": "${el.type === 'text' ? (el.content || 'New text content') : (el.properties?.fill || '#ff0000')}"`).join(',')}
   }
 }`}
                       </pre>
