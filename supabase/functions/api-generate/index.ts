@@ -82,9 +82,8 @@ serve(async (req) => {
         endpoint: '/api-generate'
       });
 
-    // Apply overrides to template scene data
+    // Apply overrides to template scene data (temporarily for this render only)
     let modifiedSceneData = { ...template.scene_data };
-    let hasChanges = false;
     
     if (overrides && typeof overrides === 'object') {
       // Apply overrides to fabric objects using systematic names
@@ -94,7 +93,7 @@ serve(async (req) => {
           const systematicName = obj.systematicName;
           
           if (systematicName && overrides[systematicName] !== undefined) {
-            hasChanges = true;
+            console.log(`Applying override to ${systematicName}:`, overrides[systematicName]);
             
             // For text objects, handle both simple string and object overrides
             if (obj.text !== undefined) {
@@ -107,17 +106,21 @@ serve(async (req) => {
                 // Update text content
                 if (override.text !== undefined) {
                   updatedObj.text = override.text;
+                  console.log(`Updated text to: ${override.text}`);
                 }
                 
                 // Update text properties
                 if (override.fontSize !== undefined) {
                   updatedObj.fontSize = override.fontSize;
+                  console.log(`Updated fontSize to: ${override.fontSize}`);
                 }
                 if (override.fontFamily !== undefined) {
                   updatedObj.fontFamily = override.fontFamily;
+                  console.log(`Updated fontFamily to: ${override.fontFamily}`);
                 }
                 if (override.fill !== undefined) {
                   updatedObj.fill = override.fill;
+                  console.log(`Updated fill to: ${override.fill}`);
                 }
                 if (override.fontWeight !== undefined) {
                   updatedObj.fontWeight = override.fontWeight;
@@ -136,12 +139,14 @@ serve(async (req) => {
               } 
               // If override is a simple string (backward compatibility)
               else if (typeof override === 'string') {
+                console.log(`Updated text (string) to: ${override}`);
                 return { ...obj, text: override };
               }
             }
             
             // For shapes, update the fill color
             if (obj.fill !== undefined && typeof overrides[systematicName] === 'string') {
+              console.log(`Updated shape fill to: ${overrides[systematicName]}`);
               return { ...obj, fill: overrides[systematicName] };
             }
           }
@@ -151,30 +156,7 @@ serve(async (req) => {
       }
     }
 
-    // Update the template in the database if there are changes
-    if (hasChanges) {
-      console.log('Updating template scene_data in database');
-      const { error: updateError } = await supabase
-        .from('templates')
-        .update({ 
-          scene_data: modifiedSceneData,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', template_id)
-        .eq('user_id', user.id);
-
-      if (updateError) {
-        console.error('Error updating template:', updateError);
-        return new Response(JSON.stringify({ error: 'Failed to update template' }), {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      
-      console.log('Template updated successfully');
-    }
-
-    console.log('Scene data modified, calling render function');
+    console.log('Overrides applied, calling render function with modified scene data');
 
     // Call the render function to generate image
     const renderResponse = await supabase.functions.invoke('render', {
