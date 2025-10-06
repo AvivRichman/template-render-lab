@@ -96,13 +96,52 @@ serve(async (req) => {
           if (systematicName && overrides[systematicName] !== undefined) {
             hasChanges = true;
             
-            // For text objects, update the text content
+            // For text objects, handle both simple string and object overrides
             if (obj.text !== undefined) {
-              return { ...obj, text: overrides[systematicName] };
+              const override = overrides[systematicName];
+              
+              // If override is an object with text properties
+              if (typeof override === 'object' && override !== null) {
+                const updatedObj = { ...obj };
+                
+                // Update text content
+                if (override.text !== undefined) {
+                  updatedObj.text = override.text;
+                }
+                
+                // Update text properties
+                if (override.fontSize !== undefined) {
+                  updatedObj.fontSize = override.fontSize;
+                }
+                if (override.fontFamily !== undefined) {
+                  updatedObj.fontFamily = override.fontFamily;
+                }
+                if (override.fill !== undefined) {
+                  updatedObj.fill = override.fill;
+                }
+                if (override.fontWeight !== undefined) {
+                  updatedObj.fontWeight = override.fontWeight;
+                }
+                if (override.fontStyle !== undefined) {
+                  updatedObj.fontStyle = override.fontStyle;
+                }
+                if (override.underline !== undefined) {
+                  updatedObj.underline = override.underline;
+                }
+                if (override.textAlign !== undefined) {
+                  updatedObj.textAlign = override.textAlign;
+                }
+                
+                return updatedObj;
+              } 
+              // If override is a simple string (backward compatibility)
+              else if (typeof override === 'string') {
+                return { ...obj, text: override };
+              }
             }
             
             // For shapes, update the fill color
-            if (obj.fill !== undefined) {
+            if (obj.fill !== undefined && typeof overrides[systematicName] === 'string') {
               return { ...obj, fill: overrides[systematicName] };
             }
           }

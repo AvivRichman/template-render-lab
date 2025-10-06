@@ -517,12 +517,30 @@ print(result["image_url"])`;
                     
                     {/* Quick API Usage Example */}
                     <div className="mt-4 p-3 bg-[hsl(var(--editor-background))] rounded-lg">
-                      <Label className="text-xs font-medium">API Usage Example:</Label>
+                      <Label className="text-xs font-medium">API Usage Example (with all modifiable properties):</Label>
                       <pre className="text-xs mt-1 text-muted-foreground overflow-x-auto">
 {`{
   "template_id": "${template.id}",
-  "overrides": {${template.elements.map(el => `
-    "${el.editable_key}": "${el.type === 'text' ? (el.content || 'New text content') : (el.properties?.fill || '#ff0000')}"`).join(',')}
+  "overrides": {${template.elements.map(el => {
+    if (el.type === 'text') {
+      // For text elements, show content and all text properties
+      return `
+    "${el.editable_key}": {
+      "text": "${el.content || 'New text content'}",
+      "fontSize": ${el.properties?.fontSize || 24},
+      "fontFamily": "${el.properties?.fontFamily || 'Arial'}",
+      "fill": "${el.properties?.fill || '#000000'}"
+    }`;
+    } else if (el.type === 'shape') {
+      // For shapes, show fill color
+      return `
+    "${el.editable_key}": "${el.properties?.fill || '#ff0000'}"`;
+    } else {
+      // For other elements
+      return `
+    "${el.editable_key}": "value"`;
+    }
+  }).join(',')}
   }
 }`}
                       </pre>
