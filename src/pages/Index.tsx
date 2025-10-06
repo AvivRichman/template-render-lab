@@ -20,6 +20,7 @@ import { UploadArea } from "@/components/UploadArea";
 import { Templates } from "@/components/Templates";
 import { APIDemo } from "@/components/APIDemo";
 import { useTemplates } from "@/hooks/useTemplates";
+import { supabase } from "@/integrations/supabase/client";
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState("upload");
@@ -40,8 +41,23 @@ const Index = () => {
     setActiveTab("editor");
   };
 
-  const handleEditTemplate = (template: any) => {
-    setSelectedTemplate(template.scene_data);
+  const handleEditTemplate = async (template: any) => {
+    // Fetch the latest template data from the database
+    const { data: latestTemplate, error } = await supabase
+      .from('templates')
+      .select('*')
+      .eq('id', template.id)
+      .single();
+    
+    if (error) {
+      console.error('Error fetching latest template:', error);
+      // Fallback to cached data
+      setSelectedTemplate(template.scene_data);
+    } else {
+      // Use the most recent data from database
+      setSelectedTemplate(latestTemplate.scene_data);
+    }
+    
     setUploadedImage(""); // Clear uploaded image when loading template
     setActiveTab("editor");
   };
