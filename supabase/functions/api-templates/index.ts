@@ -64,13 +64,19 @@ serve(async (req) => {
       
       if (template.scene_data?.objects) {
         template.scene_data.objects.forEach((obj: any, index: number) => {
+          // Use systematic name if available, otherwise generate one
+          const systematicName = obj.systematicName || 
+            (obj.text !== undefined ? `text_${index + 1}` : 
+             obj.fill !== undefined || obj.stroke !== undefined ? `shape_${index + 1}` :
+             obj.src ? `image_${index + 1}` : `element_${index + 1}`);
+          
           // Handle fabric.js text objects
           if (obj.text !== undefined) {
             elements.push({
-              id: obj.id || `text_${index}`,
+              id: obj.id || systematicName,
               type: 'text',
               content: obj.text || '',
-              editable_key: obj.text?.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') || `text_${index}`,
+              editable_key: systematicName,
               properties: {
                 fontSize: obj.fontSize,
                 fontFamily: obj.fontFamily,
@@ -90,10 +96,10 @@ serve(async (req) => {
                              obj.x1 !== undefined ? 'line' : 'shape';
             
             elements.push({
-              id: obj.id || `shape_${index}`,
+              id: obj.id || systematicName,
               type: 'shape',
               shape_type: shapeType,
-              editable_key: `${shapeType}_${index}`,
+              editable_key: systematicName,
               properties: {
                 fill: obj.fill,
                 stroke: obj.stroke,
@@ -113,10 +119,10 @@ serve(async (req) => {
           // Handle image objects
           else if (obj.src) {
             elements.push({
-              id: obj.id || `image_${index}`,
+              id: obj.id || systematicName,
               type: 'image',
               content: obj.src.substring(0, 50) + '...',
-              editable_key: `image_${index}`,
+              editable_key: systematicName,
               properties: {
                 left: obj.left,
                 top: obj.top,
@@ -133,9 +139,9 @@ serve(async (req) => {
           // Handle other objects
           else {
             elements.push({
-              id: obj.id || `element_${index}`,
+              id: obj.id || systematicName,
               type: 'unknown',
-              editable_key: `element_${index}`,
+              editable_key: systematicName,
               properties: {
                 left: obj.left,
                 top: obj.top,

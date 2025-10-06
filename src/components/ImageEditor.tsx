@@ -124,6 +124,10 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
   const addText = () => {
     if (!fabricCanvas) return;
     
+    // Count existing text elements to generate systematic name
+    const existingTextCount = fabricCanvas.getObjects().filter(obj => obj instanceof FabricText).length;
+    const systematicName = `text_${existingTextCount + 1}`;
+    
     const text = new FabricText(textContent, {
       left: 100,
       top: 100,
@@ -136,14 +140,23 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
       textAlign: textAlign,
     });
     
+    // Store systematic name as custom property
+    (text as any).systematicName = systematicName;
+    
     fabricCanvas.add(text);
     fabricCanvas.setActiveObject(text);
     fabricCanvas.renderAll();
-    toast("Text added to canvas");
+    toast(`Text added: ${systematicName}`);
   };
 
   const addShape = (type: "rectangle" | "circle" | "line") => {
     if (!fabricCanvas) return;
+    
+    // Count existing shapes to generate systematic name
+    const existingShapeCount = fabricCanvas.getObjects().filter(obj => 
+      obj instanceof Rect || obj instanceof Circle || obj instanceof Line
+    ).length;
+    const systematicName = `shape_${existingShapeCount + 1}`;
     
     let shape;
     
@@ -178,10 +191,13 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
     }
     
     if (shape) {
+      // Store systematic name as custom property
+      (shape as any).systematicName = systematicName;
+      
       fabricCanvas.add(shape);
       fabricCanvas.setActiveObject(shape);
       fabricCanvas.renderAll();
-      toast(`${type} added to canvas`);
+      toast(`${type} added: ${systematicName}`);
     }
   };
 
@@ -274,7 +290,21 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
     toast("Saving template...");
 
     try {
+      // Get scene data and add systematic names to objects
       const sceneData = fabricCanvas.toJSON();
+      
+      // Add systematic names to each object in the scene data
+      if (sceneData.objects) {
+        sceneData.objects = sceneData.objects.map((obj: any, index: number) => {
+          const fabricObj = fabricCanvas.getObjects()[index];
+          const systematicName = (fabricObj as any).systematicName;
+          
+          if (systematicName) {
+            return { ...obj, systematicName };
+          }
+          return obj;
+        });
+      }
       
       // Generate thumbnail (smaller version)
       const thumbnailDataURL = fabricCanvas.toDataURL({

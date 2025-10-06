@@ -87,30 +87,24 @@ serve(async (req) => {
     let hasChanges = false;
     
     if (overrides && typeof overrides === 'object') {
-      // Apply text overrides to fabric objects
+      // Apply overrides to fabric objects using systematic names
       if (modifiedSceneData.objects) {
         modifiedSceneData.objects = modifiedSceneData.objects.map((obj: any) => {
-          if (obj.text !== undefined) {
-            // Check if there's an override for this text object
-            const textKey = obj.text?.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-            if (textKey && overrides[textKey]) {
-              hasChanges = true;
-              return { ...obj, text: overrides[textKey] };
+          // Check if there's a systematic name for this object
+          const systematicName = obj.systematicName;
+          
+          if (systematicName && overrides[systematicName] !== undefined) {
+            hasChanges = true;
+            
+            // For text objects, update the text content
+            if (obj.text !== undefined) {
+              return { ...obj, text: overrides[systematicName] };
             }
             
-            // Also check for generic overrides like title, subtitle, etc.
-            for (const [key, value] of Object.entries(overrides)) {
-              if (obj.text?.toLowerCase().includes(key.toLowerCase())) {
-                hasChanges = true;
-                return { ...obj, text: value };
-              }
+            // For shapes, update the fill color
+            if (obj.fill !== undefined) {
+              return { ...obj, fill: overrides[systematicName] };
             }
-          }
-          
-          // Apply style overrides if provided
-          if (overrides.styles && overrides.styles[obj.id]) {
-            hasChanges = true;
-            return { ...obj, ...overrides.styles[obj.id] };
           }
           
           return obj;
