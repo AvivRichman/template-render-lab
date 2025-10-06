@@ -95,7 +95,11 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
     // Load template data if provided
     if (templateData) {
       canvas.loadFromJSON(templateData, () => {
-        canvas.renderAll();
+        canvas.requestRenderAll();
+        // Force another render after a short delay to ensure everything is visible
+        setTimeout(() => {
+          canvas.requestRenderAll();
+        }, 100);
       });
     }
     // Load uploaded image if provided
