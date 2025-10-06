@@ -86,10 +86,29 @@ serve(async (req) => {
     let modifiedSceneData = { ...template.scene_data };
     
     if (overrides && typeof overrides === 'object') {
-      // Apply overrides to fabric objects using systematic names
+      // First, ensure all objects have systematic names (for backward compatibility)
       if (modifiedSceneData.objects) {
+        let textCounter = 0;
+        let shapeCounter = 0;
+        
         modifiedSceneData.objects = modifiedSceneData.objects.map((obj: any) => {
-          // Check if there's a systematic name for this object
+          // If object doesn't have a systematicName, assign one based on type
+          if (!obj.systematicName) {
+            if (obj.type === 'Text' || obj.type === 'Textbox') {
+              textCounter++;
+              obj.systematicName = `text_${textCounter}`;
+              console.log(`Auto-assigned systematicName: ${obj.systematicName} to text object`);
+            } else if (obj.type === 'Rect' || obj.type === 'Circle' || obj.type === 'Line') {
+              shapeCounter++;
+              obj.systematicName = `shape_${shapeCounter}`;
+              console.log(`Auto-assigned systematicName: ${obj.systematicName} to shape object`);
+            }
+          }
+          return obj;
+        });
+        
+        // Now apply overrides to fabric objects using systematic names
+        modifiedSceneData.objects = modifiedSceneData.objects.map((obj: any) => {
           const systematicName = obj.systematicName;
           
           if (systematicName && overrides[systematicName] !== undefined) {
