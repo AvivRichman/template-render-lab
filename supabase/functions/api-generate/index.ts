@@ -178,6 +178,26 @@ serve(async (req) => {
     console.log('Overrides applied, calling render function with modified scene_data');
     console.log('Modified scene_data preview:', JSON.stringify(modifiedSceneData).substring(0, 1000));
 
+    // Update the template with the modified scene_data
+    const { error: updateError } = await supabase
+      .from('templates')
+      .update({ 
+        scene_data: modifiedSceneData,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', template_id)
+      .eq('user_id', user.id);
+
+    if (updateError) {
+      console.error('Error updating template:', updateError);
+      return new Response(JSON.stringify({ error: 'Failed to update template' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    console.log('Template scene_data updated in database');
+
     // Call the render function to generate image
     const renderResponse = await supabase.functions.invoke('render', {
       body: {
