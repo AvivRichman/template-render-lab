@@ -24,6 +24,7 @@ serve(async (req) => {
     }
 
     console.log('Rendering template:', template_id);
+    console.log('Scene data passed to render:', JSON.stringify(scene_data).substring(0, 500));
 
     // Initialize Supabase client
     const supabase = createClient(

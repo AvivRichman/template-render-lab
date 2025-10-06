@@ -156,7 +156,8 @@ serve(async (req) => {
       }
     }
 
-    console.log('Overrides applied, calling render function with modified scene data');
+    console.log('Overrides applied, calling render function with modified scene_data');
+    console.log('Modified scene_data preview:', JSON.stringify(modifiedSceneData).substring(0, 1000));
 
     // Call the render function to generate image
     const renderResponse = await supabase.functions.invoke('render', {
