@@ -51,6 +51,32 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
   const [isItalic, setIsItalic] = useState(false);
   const [isUnderline, setIsUnderline] = useState(false);
   const [textAlign, setTextAlign] = useState<"left" | "center" | "right">("left");
+  const [selectedObjectName, setSelectedObjectName] = useState<string>("");
+
+  // Create or update the label showing the systematic name
+  const updateObjectLabel = (canvas: FabricCanvas, obj: any) => {
+    // Remove existing label if any
+    const existingLabel = canvas.getObjects().find((o: any) => o.isSystemLabel);
+    if (existingLabel) {
+      canvas.remove(existingLabel);
+    }
+
+    if (obj && (obj as any).systematicName) {
+      const label = new FabricText((obj as any).systematicName, {
+        left: obj.left || 0,
+        top: (obj.top || 0) - 25,
+        fontSize: 12,
+        fill: '#0066ff',
+        fontFamily: 'Arial',
+        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+        selectable: false,
+        evented: false,
+        isSystemLabel: true as any,
+      });
+      canvas.add(label);
+      canvas.requestRenderAll();
+    }
+  };
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -66,6 +92,8 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
       const obj = e.selected?.[0];
       if (obj) {
         setSelectedObject(obj);
+        setSelectedObjectName((obj as any).systematicName || "");
+        updateObjectLabel(canvas, obj);
         if (obj instanceof FabricText) {
           setTextContent(obj.text || "");
           setFontSize([obj.fontSize || 24]);
@@ -83,11 +111,28 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
       const obj = e.selected?.[0];
       if (obj) {
         setSelectedObject(obj);
+        setSelectedObjectName((obj as any).systematicName || "");
+        updateObjectLabel(canvas, obj);
       }
     });
 
     canvas.on('selection:cleared', () => {
       setSelectedObject(null);
+      setSelectedObjectName("");
+      // Remove label when selection is cleared
+      const existingLabel = canvas.getObjects().find((o: any) => o.isSystemLabel);
+      if (existingLabel) {
+        canvas.remove(existingLabel);
+        canvas.requestRenderAll();
+      }
+    });
+
+    // Update label position when object moves
+    canvas.on('object:moving', (e) => {
+      const obj = e.target;
+      if (obj && (obj as any).systematicName) {
+        updateObjectLabel(canvas, obj);
+      }
     });
 
     setFabricCanvas(canvas);
