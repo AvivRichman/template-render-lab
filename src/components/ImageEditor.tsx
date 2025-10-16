@@ -43,6 +43,8 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
   const [templateName, setTemplateName] = useState("");
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [originalImageUrl, setOriginalImageUrl] = useState<string>("");
+  const [canvasWidth, setCanvasWidth] = useState(800);
+  const [canvasHeight, setCanvasHeight] = useState(600);
   
   const { saveTemplate } = useTemplates();
   
@@ -86,8 +88,8 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
     if (!canvasRef.current) return;
 
     const canvas = new FabricCanvas(canvasRef.current, {
-      width: 800,
-      height: 600,
+      width: canvasWidth,
+      height: canvasHeight,
       backgroundColor: "#ffffff",
     });
 
@@ -172,7 +174,15 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
     return () => {
       canvas.dispose();
     };
-  }, [uploadedImage, templateData]);
+  }, [uploadedImage, templateData, canvasWidth, canvasHeight]);
+
+  // Update canvas size when dimensions change
+  useEffect(() => {
+    if (fabricCanvas) {
+      fabricCanvas.setDimensions({ width: canvasWidth, height: canvasHeight });
+      fabricCanvas.renderAll();
+    }
+  }, [canvasWidth, canvasHeight, fabricCanvas]);
 
   const addText = () => {
     if (!fabricCanvas) return;
@@ -679,7 +689,62 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
             </AccordionTrigger>
             <AccordionContent className="absolute right-full top-0 mr-2 z-50">
               <Card className="p-4 space-y-2 w-[280px] shadow-lg bg-card border border-border">
-                <h3 className="font-semibold text-sm mb-3">Actions</h3>
+                <h3 className="font-semibold text-sm mb-3">Canvas & Actions</h3>
+                
+                {/* Canvas Size Selection */}
+                <div className="space-y-2 pb-3 border-b border-border">
+                  <Label className="text-xs">Canvas Size</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      variant={canvasWidth === 800 && canvasHeight === 600 ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        setCanvasWidth(800);
+                        setCanvasHeight(600);
+                        toast("Canvas size: 800×600");
+                      }}
+                      className="text-xs"
+                    >
+                      800×600
+                    </Button>
+                    <Button
+                      variant={canvasWidth === 1024 && canvasHeight === 768 ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        setCanvasWidth(1024);
+                        setCanvasHeight(768);
+                        toast("Canvas size: 1024×768");
+                      }}
+                      className="text-xs"
+                    >
+                      1024×768
+                    </Button>
+                    <Button
+                      variant={canvasWidth === 1300 && canvasHeight === 900 ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        setCanvasWidth(1300);
+                        setCanvasHeight(900);
+                        toast("Canvas size: 1300×900");
+                      }}
+                      className="text-xs"
+                    >
+                      1300×900
+                    </Button>
+                    <Button
+                      variant={canvasWidth === 1920 && canvasHeight === 1080 ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        setCanvasWidth(1920);
+                        setCanvasHeight(1080);
+                        toast("Canvas size: 1920×1080");
+                      }}
+                      className="text-xs"
+                    >
+                      1920×1080
+                    </Button>
+                  </div>
+                </div>
                 
                 <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
                   <DialogTrigger asChild>
