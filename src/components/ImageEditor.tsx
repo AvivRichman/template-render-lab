@@ -18,7 +18,8 @@ import {
   AlignRight,
   Save,
   Shapes,
-  Wrench
+  Wrench,
+  Upload
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
@@ -613,6 +614,58 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
                 <Button onClick={addText} className="w-full" size="sm">
                   Add Text
                 </Button>
+              </Card>
+            </AccordionContent>
+          </AccordionItem>
+
+          {/* Upload Section */}
+          <AccordionItem value="upload" className="border-none">
+            <AccordionTrigger className="flex flex-col items-center gap-2 py-3 hover:no-underline hover:bg-accent rounded-lg [&>svg]:rotate-0 [&[data-state=open]>svg]:rotate-0">
+              <Upload className="h-6 w-6" />
+              <span className="text-xs font-medium">Upload</span>
+            </AccordionTrigger>
+            <AccordionContent className="absolute right-full top-0 mr-2 z-50">
+              <Card className="p-4 space-y-3 w-[280px] shadow-lg bg-card border border-border">
+                <h3 className="font-semibold text-sm mb-3">Upload Image</h3>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="image-upload" className="text-xs">Select an image to add to canvas</Label>
+                  <Input
+                    id="image-upload"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file && fabricCanvas) {
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                          const imgUrl = event.target?.result as string;
+                          const img = new Image();
+                          img.crossOrigin = 'anonymous';
+                          img.onload = () => {
+                            const fabricImage = new FabricImage(img, {
+                              left: 100,
+                              top: 100,
+                              scaleX: 0.5,
+                              scaleY: 0.5,
+                            });
+                            fabricCanvas.add(fabricImage);
+                            fabricCanvas.setActiveObject(fabricImage);
+                            fabricCanvas.renderAll();
+                            toast("Image uploaded successfully!");
+                          };
+                          img.src = imgUrl;
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    className="h-9 text-sm"
+                  />
+                </div>
+                
+                <p className="text-xs text-muted-foreground">
+                  Supported formats: JPG, PNG, GIF, WebP
+                </p>
               </Card>
             </AccordionContent>
           </AccordionItem>
