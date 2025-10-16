@@ -443,7 +443,7 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
           <Accordion type="single" collapsible className="space-y-2">
             {/* Elements Section */}
             <AccordionItem value="elements" className="border-none">
-              <AccordionTrigger className="flex flex-col items-center gap-2 py-3 hover:no-underline hover:bg-accent rounded-lg">
+              <AccordionTrigger className="flex flex-col items-center gap-2 py-3 hover:no-underline hover:bg-accent rounded-lg [&>svg]:rotate-0 [&[data-state=open]>svg]:rotate-0">
                 <Shapes className="h-6 w-6" />
                 <span className="text-xs font-medium">Elements</span>
               </AccordionTrigger>
@@ -491,7 +491,7 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
 
           {/* Text Section */}
           <AccordionItem value="text" className="border-none">
-            <AccordionTrigger className="flex flex-col items-center gap-2 py-3 hover:no-underline hover:bg-accent rounded-lg">
+            <AccordionTrigger className="flex flex-col items-center gap-2 py-3 hover:no-underline hover:bg-accent rounded-lg [&>svg]:rotate-0 [&[data-state=open]>svg]:rotate-0">
               <Type className="h-6 w-6" />
               <span className="text-xs font-medium">Text</span>
             </AccordionTrigger>
@@ -619,7 +619,7 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
 
           {/* Tools Section */}
           <AccordionItem value="tools" className="border-none">
-            <AccordionTrigger className="flex flex-col items-center gap-2 py-3 hover:no-underline hover:bg-accent rounded-lg">
+            <AccordionTrigger className="flex flex-col items-center gap-2 py-3 hover:no-underline hover:bg-accent rounded-lg [&>svg]:rotate-0 [&[data-state=open]>svg]:rotate-0">
               <Wrench className="h-6 w-6" />
               <span className="text-xs font-medium">Tools</span>
             </AccordionTrigger>
