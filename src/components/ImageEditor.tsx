@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { 
   Type, 
   Square, 
@@ -17,13 +16,16 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
-  Save
+  Save,
+  Shapes,
+  Wrench
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
 import { useTemplates } from "@/hooks/useTemplates";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 interface ImageEditorProps {
   uploadedImage?: string;
@@ -435,224 +437,239 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
         </div>
       </div>
       
-      {/* Controls Panel */}
-      <Card className="w-80 p-6 space-y-6 bg-card">
-        {/* Tools */}
-        <div className="space-y-3">
-          <h3 className="font-semibold text-sm">Tools</h3>
-          <div className="grid grid-cols-3 gap-2">
-            <Button
-              variant={activeTool === "text" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setActiveTool("text")}
-              className="h-10"
-            >
-              <Type className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={activeTool === "rectangle" ? "default" : "outline"}
-              size="sm"
-              onClick={() => {
-                setActiveTool("rectangle");
-                addShape("rectangle");
-              }}
-              className="h-10"
-            >
-              <Square className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={activeTool === "circle" ? "default" : "outline"}
-              size="sm"
-              onClick={() => {
-                setActiveTool("circle");
-                addShape("circle");
-              }}
-              className="h-10"
-            >
-              <CircleIcon className="h-4 w-4" />
-            </Button>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setActiveTool("line");
-              addShape("line");
-            }}
-            className="w-full"
-          >
-            <Minus className="h-4 w-4 mr-2" />
-            Line
-          </Button>
-        </div>
-
-        <Separator />
-
-        {/* Text Controls */}
-        <div className="space-y-4">
-          <h3 className="font-semibold text-sm">Text Controls</h3>
-          
-          <div className="space-y-2">
-            <Label htmlFor="text-content" className="text-xs">Text</Label>
-            <Input
-              id="text-content"
-              value={textContent}
-              onChange={(e) => setTextContent(e.target.value)}
-              className="h-8 text-sm"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-xs">Font Size: {fontSize[0]}px</Label>
-            <Slider
-              value={fontSize}
-              onValueChange={setFontSize}
-              max={72}
-              min={8}
-              step={1}
-              className="w-full"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="text-color" className="text-xs">Color</Label>
-            <div className="flex gap-2">
-              <Input
-                id="text-color"
-                type="color"
-                value={textColor}
-                onChange={(e) => setTextColor(e.target.value)}
-                className="w-12 h-8 p-1 border rounded"
-              />
-              <Input
-                value={textColor}
-                onChange={(e) => setTextColor(e.target.value)}
-                className="flex-1 h-8 text-sm"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-xs">Font Family</Label>
-            <select
-              value={fontFamily}
-              onChange={(e) => setFontFamily(e.target.value)}
-              className="w-full h-8 px-2 text-sm border border-border rounded-md bg-background"
-            >
-              <option value="Arial">Arial</option>
-              <option value="Georgia">Georgia</option>
-              <option value="Times New Roman">Times New Roman</option>
-              <option value="Helvetica">Helvetica</option>
-              <option value="Courier New">Courier New</option>
-            </select>
-          </div>
-
-          {/* Text Style Buttons */}
-          <div className="flex gap-1">
-            <Button
-              variant={isBold ? "default" : "outline"}
-              size="sm"
-              onClick={() => setIsBold(!isBold)}
-              className="h-8 w-8 p-0"
-            >
-              <Bold className="h-3 w-3" />
-            </Button>
-            <Button
-              variant={isItalic ? "default" : "outline"}
-              size="sm"
-              onClick={() => setIsItalic(!isItalic)}
-              className="h-8 w-8 p-0"
-            >
-              <Italic className="h-3 w-3" />
-            </Button>
-            <Button
-              variant={isUnderline ? "default" : "outline"}
-              size="sm"
-              onClick={() => setIsUnderline(!isUnderline)}
-              className="h-8 w-8 p-0"
-            >
-              <Underline className="h-3 w-3" />
-            </Button>
-          </div>
-
-          {/* Text Alignment */}
-          <div className="flex gap-1">
-            <Button
-              variant={textAlign === "left" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setTextAlign("left")}
-              className="h-8 w-8 p-0"
-            >
-              <AlignLeft className="h-3 w-3" />
-            </Button>
-            <Button
-              variant={textAlign === "center" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setTextAlign("center")}
-              className="h-8 w-8 p-0"
-            >
-              <AlignCenter className="h-3 w-3" />
-            </Button>
-            <Button
-              variant={textAlign === "right" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setTextAlign("right")}
-              className="h-8 w-8 p-0"
-            >
-              <AlignRight className="h-3 w-3" />
-            </Button>
-          </div>
-
-          <Button onClick={addText} className="w-full" size="sm">
-            Add Text
-          </Button>
-        </div>
-
-        <Separator />
-
-        {/* Export Controls */}
-        <div className="space-y-2">
-          <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="w-full" size="sm">
-                <Save className="h-4 w-4 mr-2" />
-                Save as Template
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Save Template</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="template-name">Template Name</Label>
-                  <Input
-                    id="template-name"
-                    value={templateName}
-                    onChange={(e) => setTemplateName(e.target.value)}
-                    placeholder="Enter template name..."
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button onClick={handleSaveTemplate} className="flex-1">
-                    Save Template
+      {/* Controls Panel - Icon Sidebar */}
+      <Card className="w-20 p-2 bg-card overflow-y-auto">
+        <Accordion type="single" collapsible className="space-y-2">
+          {/* Elements Section */}
+          <AccordionItem value="elements" className="border-none">
+            <AccordionTrigger className="flex flex-col items-center gap-2 py-3 hover:no-underline hover:bg-accent rounded-lg">
+              <Shapes className="h-6 w-6" />
+              <span className="text-xs font-medium">Elements</span>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="p-4 space-y-3 min-w-[240px]">
+                <h3 className="font-semibold text-sm mb-3">Add Shapes</h3>
+                <div className="grid grid-cols-3 gap-2">
+                  <Button
+                    variant={activeTool === "rectangle" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => {
+                      setActiveTool("rectangle");
+                      addShape("rectangle");
+                    }}
+                    className="h-10"
+                  >
+                    <Square className="h-4 w-4" />
                   </Button>
-                  <Button variant="outline" onClick={() => setSaveDialogOpen(false)}>
-                    Cancel
+                  <Button
+                    variant={activeTool === "circle" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => {
+                      setActiveTool("circle");
+                      addShape("circle");
+                    }}
+                    className="h-10"
+                  >
+                    <CircleIcon className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setActiveTool("line");
+                      addShape("line");
+                    }}
+                    className="h-10"
+                  >
+                    <Minus className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
-            </DialogContent>
-          </Dialog>
-          
-          <Button onClick={exportImage} variant="outline" className="w-full" size="sm">
-            <Download className="h-4 w-4 mr-2" />
-            Export Image
-          </Button>
-          <Button onClick={clearCanvas} variant="outline" className="w-full" size="sm">
-            Clear Canvas
-          </Button>
-        </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          {/* Text Section */}
+          <AccordionItem value="text" className="border-none">
+            <AccordionTrigger className="flex flex-col items-center gap-2 py-3 hover:no-underline hover:bg-accent rounded-lg">
+              <Type className="h-6 w-6" />
+              <span className="text-xs font-medium">Text</span>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="p-4 space-y-4 min-w-[260px]">
+                <h3 className="font-semibold text-sm mb-3">Text Controls</h3>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="text-content" className="text-xs">Text</Label>
+                  <Input
+                    id="text-content"
+                    value={textContent}
+                    onChange={(e) => setTextContent(e.target.value)}
+                    className="h-8 text-sm"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs">Font Size: {fontSize[0]}px</Label>
+                  <Slider
+                    value={fontSize}
+                    onValueChange={setFontSize}
+                    max={72}
+                    min={8}
+                    step={1}
+                    className="w-full"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="text-color" className="text-xs">Color</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="text-color"
+                      type="color"
+                      value={textColor}
+                      onChange={(e) => setTextColor(e.target.value)}
+                      className="w-12 h-8 p-1 border rounded"
+                    />
+                    <Input
+                      value={textColor}
+                      onChange={(e) => setTextColor(e.target.value)}
+                      className="flex-1 h-8 text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs">Font Family</Label>
+                  <select
+                    value={fontFamily}
+                    onChange={(e) => setFontFamily(e.target.value)}
+                    className="w-full h-8 px-2 text-sm border border-border rounded-md bg-background"
+                  >
+                    <option value="Arial">Arial</option>
+                    <option value="Georgia">Georgia</option>
+                    <option value="Times New Roman">Times New Roman</option>
+                    <option value="Helvetica">Helvetica</option>
+                    <option value="Courier New">Courier New</option>
+                  </select>
+                </div>
+
+                {/* Text Style Buttons */}
+                <div className="flex gap-1">
+                  <Button
+                    variant={isBold ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setIsBold(!isBold)}
+                    className="h-8 w-8 p-0"
+                  >
+                    <Bold className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    variant={isItalic ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setIsItalic(!isItalic)}
+                    className="h-8 w-8 p-0"
+                  >
+                    <Italic className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    variant={isUnderline ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setIsUnderline(!isUnderline)}
+                    className="h-8 w-8 p-0"
+                  >
+                    <Underline className="h-3 w-3" />
+                  </Button>
+                </div>
+
+                {/* Text Alignment */}
+                <div className="flex gap-1">
+                  <Button
+                    variant={textAlign === "left" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setTextAlign("left")}
+                    className="h-8 w-8 p-0"
+                  >
+                    <AlignLeft className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    variant={textAlign === "center" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setTextAlign("center")}
+                    className="h-8 w-8 p-0"
+                  >
+                    <AlignCenter className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    variant={textAlign === "right" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setTextAlign("right")}
+                    className="h-8 w-8 p-0"
+                  >
+                    <AlignRight className="h-3 w-3" />
+                  </Button>
+                </div>
+
+                <Button onClick={addText} className="w-full" size="sm">
+                  Add Text
+                </Button>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          {/* Tools Section */}
+          <AccordionItem value="tools" className="border-none">
+            <AccordionTrigger className="flex flex-col items-center gap-2 py-3 hover:no-underline hover:bg-accent rounded-lg">
+              <Wrench className="h-6 w-6" />
+              <span className="text-xs font-medium">Tools</span>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="p-4 space-y-2 min-w-[220px]">
+                <h3 className="font-semibold text-sm mb-3">Actions</h3>
+                
+                <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button className="w-full" size="sm">
+                      <Save className="h-4 w-4 mr-2" />
+                      Save as Template
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Save Template</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="template-name">Template Name</Label>
+                        <Input
+                          id="template-name"
+                          value={templateName}
+                          onChange={(e) => setTemplateName(e.target.value)}
+                          placeholder="Enter template name..."
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <Button onClick={handleSaveTemplate} className="flex-1">
+                          Save Template
+                        </Button>
+                        <Button variant="outline" onClick={() => setSaveDialogOpen(false)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+                
+                <Button onClick={exportImage} variant="outline" className="w-full" size="sm">
+                  <Download className="h-4 w-4 mr-2" />
+                  Export Image
+                </Button>
+                <Button onClick={clearCanvas} variant="outline" className="w-full" size="sm">
+                  Clear Canvas
+                </Button>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
       </Card>
     </div>
   );
