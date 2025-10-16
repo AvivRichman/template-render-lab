@@ -176,14 +176,6 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
     };
   }, [uploadedImage, templateData, canvasWidth, canvasHeight]);
 
-  // Update canvas size when dimensions change
-  useEffect(() => {
-    if (fabricCanvas) {
-      fabricCanvas.setDimensions({ width: canvasWidth, height: canvasHeight });
-      fabricCanvas.renderAll();
-    }
-  }, [canvasWidth, canvasHeight, fabricCanvas]);
-
   const addText = () => {
     if (!fabricCanvas) return;
     
