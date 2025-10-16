@@ -19,7 +19,8 @@ import {
   Save,
   Shapes,
   Wrench,
-  Upload
+  Upload,
+  Trash2
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
@@ -712,6 +713,24 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
                     </div>
                   </DialogContent>
                 </Dialog>
+                
+                <Button 
+                  onClick={() => {
+                    if (!fabricCanvas || !selectedObject) return;
+                    fabricCanvas.remove(selectedObject);
+                    fabricCanvas.renderAll();
+                    setSelectedObject(null);
+                    setSelectedObjectName("");
+                    toast("Element deleted");
+                  }} 
+                  variant="outline" 
+                  className="w-full" 
+                  size="sm"
+                  disabled={!selectedObject}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete Selected
+                </Button>
                 
                 <Button onClick={exportImage} variant="outline" className="w-full" size="sm">
                   <Download className="h-4 w-4 mr-2" />
