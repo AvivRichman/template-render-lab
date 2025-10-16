@@ -438,18 +438,19 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
       </div>
       
       {/* Controls Panel - Icon Sidebar */}
-      <Card className="w-20 p-2 bg-card overflow-y-auto">
-        <Accordion type="single" collapsible className="space-y-2">
-          {/* Elements Section */}
-          <AccordionItem value="elements" className="border-none">
-            <AccordionTrigger className="flex flex-col items-center gap-2 py-3 hover:no-underline hover:bg-accent rounded-lg">
-              <Shapes className="h-6 w-6" />
-              <span className="text-xs font-medium">Elements</span>
-            </AccordionTrigger>
-            <AccordionContent>
-              <div className="p-4 space-y-3 min-w-[240px]">
-                <h3 className="font-semibold text-sm mb-3">Add Shapes</h3>
-                <div className="grid grid-cols-3 gap-2">
+      <div className="relative">
+        <Card className="w-20 p-2 bg-card overflow-y-auto">
+          <Accordion type="single" collapsible className="space-y-2">
+            {/* Elements Section */}
+            <AccordionItem value="elements" className="border-none">
+              <AccordionTrigger className="flex flex-col items-center gap-2 py-3 hover:no-underline hover:bg-accent rounded-lg">
+                <Shapes className="h-6 w-6" />
+                <span className="text-xs font-medium">Elements</span>
+              </AccordionTrigger>
+              <AccordionContent className="absolute right-full top-0 mr-2 z-50">
+                <Card className="p-4 space-y-3 w-[280px] shadow-lg bg-card border border-border">
+                  <h3 className="font-semibold text-sm mb-3">Add Shapes</h3>
+                  <div className="grid grid-cols-3 gap-2">
                   <Button
                     variant={activeTool === "rectangle" ? "default" : "outline"}
                     size="sm"
@@ -484,7 +485,7 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
                     <Minus className="h-4 w-4" />
                   </Button>
                 </div>
-              </div>
+              </Card>
             </AccordionContent>
           </AccordionItem>
 
@@ -494,8 +495,8 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
               <Type className="h-6 w-6" />
               <span className="text-xs font-medium">Text</span>
             </AccordionTrigger>
-            <AccordionContent>
-              <div className="p-4 space-y-4 min-w-[260px]">
+            <AccordionContent className="absolute right-full top-0 mr-2 z-50">
+              <Card className="p-4 space-y-4 w-[300px] shadow-lg bg-card border border-border">
                 <h3 className="font-semibold text-sm mb-3">Text Controls</h3>
                 
                 <div className="space-y-2">
@@ -612,7 +613,7 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
                 <Button onClick={addText} className="w-full" size="sm">
                   Add Text
                 </Button>
-              </div>
+              </Card>
             </AccordionContent>
           </AccordionItem>
 
@@ -622,8 +623,8 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
               <Wrench className="h-6 w-6" />
               <span className="text-xs font-medium">Tools</span>
             </AccordionTrigger>
-            <AccordionContent>
-              <div className="p-4 space-y-2 min-w-[220px]">
+            <AccordionContent className="absolute right-full top-0 mr-2 z-50">
+              <Card className="p-4 space-y-2 w-[280px] shadow-lg bg-card border border-border">
                 <h3 className="font-semibold text-sm mb-3">Actions</h3>
                 
                 <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
@@ -666,11 +667,12 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
                 <Button onClick={clearCanvas} variant="outline" className="w-full" size="sm">
                   Clear Canvas
                 </Button>
-              </div>
+              </Card>
             </AccordionContent>
           </AccordionItem>
         </Accordion>
       </Card>
+      </div>
     </div>
   );
 };
