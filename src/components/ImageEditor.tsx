@@ -447,7 +447,7 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
                 <Shapes className="h-6 w-6" />
                 <span className="text-xs font-medium">Elements</span>
               </AccordionTrigger>
-              <AccordionContent className="fixed right-[calc(5rem+0.5rem)] z-50">
+              <AccordionContent className="absolute right-full top-0 mr-2 z-50">
                 <Card className="p-4 space-y-3 w-[280px] shadow-lg bg-card border border-border">
                   <h3 className="font-semibold text-sm mb-3">Add Shapes</h3>
                   <div className="grid grid-cols-3 gap-2">
@@ -495,7 +495,7 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
               <Type className="h-6 w-6" />
               <span className="text-xs font-medium">Text</span>
             </AccordionTrigger>
-            <AccordionContent className="fixed right-[calc(5rem+0.5rem)] z-50">
+            <AccordionContent className="absolute right-full top-0 mr-2 z-50">
               <Card className="p-4 space-y-4 w-[300px] shadow-lg bg-card border border-border">
                 <h3 className="font-semibold text-sm mb-3">Text Controls</h3>
                 
@@ -623,7 +623,7 @@ export const ImageEditor = ({ uploadedImage, templateData, onTemplateSaved }: Im
               <Wrench className="h-6 w-6" />
               <span className="text-xs font-medium">Tools</span>
             </AccordionTrigger>
-            <AccordionContent className="fixed right-[calc(5rem+0.5rem)] z-50">
+            <AccordionContent className="absolute right-full top-0 mr-2 z-50">
               <Card className="p-4 space-y-2 w-[280px] shadow-lg bg-card border border-border">
                 <h3 className="font-semibold text-sm mb-3">Actions</h3>
                 
